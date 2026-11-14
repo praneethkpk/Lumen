@@ -1,0 +1,205 @@
+/* Dark, high-contrast launcher theme. Colours are deliberately low-chroma so the
+   accent blue is the only saturated thing on screen. */
+
+.root {
+    -fx-font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+}
+
+.shell {
+    -fx-background-color: rgba(23, 25, 30, 0.97);
+    -fx-background-radius: 16;
+    -fx-border-color: rgba(255, 255, 255, 0.09);
+    -fx-border-radius: 16;
+    -fx-border-width: 1;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.62), 30, 0.18, 0, 12);
+}
+
+/* ---- search row ---- */
+
+.search-field {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-text-fill: #eef1f7;
+    -fx-prompt-text-fill: #6d7685;
+    -fx-font-size: 22px;
+    -fx-padding: 4 2 6 0;
+    -fx-highlight-fill: rgba(110, 168, 254, 0.35);
+    -fx-highlight-text-fill: #ffffff;
+}
+
+.search-field:focused {
+    -fx-background-color: transparent;
+}
+
+.divider {
+    -fx-background-color: rgba(255, 255, 255, 0.07);
+}
+
+/* ---- results ---- */
+
+.result-list {
+    -fx-background-color: transparent;
+    -fx-control-inner-background: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 4 0 0 0;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+
+.result-list .virtual-flow,
+.result-list .virtual-flow .clipped-container,
+.result-list .virtual-flow .clipped-container .sheet {
+    -fx-background-color: transparent;
+}
+
+.result-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-padding: 0 6 0 6;
+}
+
+.result-list .list-cell:filled:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.055);
+    -fx-background-radius: 10;
+}
+
+.result-list .list-cell:filled:selected {
+    -fx-background-color: rgba(110, 168, 254, 0.17);
+    -fx-background-radius: 10;
+}
+
+.result-list .list-cell:filled:selected .item-title {
+    -fx-text-fill: #ffffff;
+}
+
+.result-list .list-cell:filled:selected .item-subtitle {
+    -fx-text-fill: #9aa6b8;
+}
+
+.item-title {
+    -fx-font-size: 14px;
+    -fx-text-fill: #e9edf4;
+}
+
+.item-subtitle {
+    -fx-font-size: 11.5px;
+    -fx-text-fill: #7c8696;
+}
+
+.item-action {
+    -fx-font-size: 11px;
+    -fx-text-fill: #5f6876;
+}
+
+.empty {
+    -fx-text-fill: #626b79;
+    -fx-font-size: 13px;
+}
+
+/* ---- kind badges ---- */
+
+.badge {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+    -fx-background-radius: 9;
+}
+
+.badge-glyph {
+    -fx-font-size: 12.5px;
+    -fx-text-fill: #9aa4b2;
+}
+
+.badge-app {
+    -fx-background-color: rgba(110, 168, 254, 0.18);
+}
+
+.badge-app .badge-glyph {
+    -fx-text-fill: #8ab9ff;
+}
+
+.badge-file {
+    -fx-background-color: rgba(139, 148, 158, 0.16);
+}
+
+.badge-file .badge-glyph {
+    -fx-text-fill: #a9b2be;
+}
+
+.badge-folder {
+    -fx-background-color: rgba(240, 180, 90, 0.16);
+}
+
+.badge-folder .badge-glyph {
+    -fx-text-fill: #f0c07d;
+}
+
+.badge-calc {
+    -fx-background-color: rgba(178, 140, 255, 0.18);
+}
+
+.badge-calc .badge-glyph {
+    -fx-text-fill: #c4a8ff;
+}
+
+.badge-web {
+    -fx-background-color: rgba(90, 220, 190, 0.16);
+}
+
+.badge-web .badge-glyph {
+    -fx-text-fill: #7fe3c8;
+}
+
+/* ---- footer ---- */
+
+.footer {
+    -fx-padding: 4 6 2 6;
+}
+
+.kbd {
+    -fx-text-fill: #97a1b1;
+    -fx-font-family: "Segoe UI", sans-serif;
+    -fx-font-size: 9.5px;
+    -fx-border-color: rgba(255, 255, 255, 0.14);
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+    -fx-background-color: rgba(255, 255, 255, 0.035);
+    -fx-background-radius: 4;
+    -fx-padding: 1 5 1 5;
+}
+
+.hint {
+    -fx-text-fill: #6b7484;
+    -fx-font-size: 11px;
+}
+
+.footer-count {
+    -fx-text-fill: #59616f;
+    -fx-font-size: 10.5px;
+}
+
+/* ---- scrollbar ---- */
+
+.result-list .scroll-bar:vertical {
+    -fx-background-color: transparent;
+    -fx-pref-width: 9;
+    -fx-padding: 0 0 0 2;
+}
+
+.result-list .scroll-bar:vertical .track {
+    -fx-background-color: transparent;
+}
+
+.result-list .scroll-bar:vertical .thumb {
+    -fx-background-color: rgba(255, 255, 255, 0.16);
+    -fx-background-radius: 4;
+}
+
+.result-list .scroll-bar .increment-button,
+.result-list .scroll-bar .decrement-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0;
+}
+
+.result-list .scroll-bar .increment-arrow,
+.result-list .scroll-bar .decrement-arrow {
+    -fx-shape: " ";
+    -fx-padding: 0;
+}
