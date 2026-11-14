@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 
 /**
@@ -50,6 +51,74 @@ public final class IndexStore {
         }
         entries.set(List.copyOf(next));
         dirty = true;
+    }
+
+    /** Insert or replace one item, matching by normalized path. */
+    public void upsert(IndexItem item) {
+        if (item == null || item.path() == null || item.path().isBlank()) {
+            return;
+        }
+        String key = normalize(item.path());
+        List<IndexEntry> current = entries.get();
+        List<IndexEntry> next = new ArrayList<>(current.size() + 1);
+        for (IndexEntry entry : current) {
+            if (!normalize(entry.item().path()).equals(key)) {
+                next.add(entry);
+            }
+        }
+        next.add(IndexEntry.of(item));
+        entries.set(List.copyOf(next));
+        dirty = true;
+    }
+
+    /** Remove one item by path. */
+    public void removePath(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        String key = normalize(path);
+        List<IndexEntry> current = entries.get();
+        List<IndexEntry> next = new ArrayList<>(current.size());
+        boolean changed = false;
+        for (IndexEntry entry : current) {
+            if (normalize(entry.item().path()).equals(key)) {
+                changed = true;
+            } else {
+                next.add(entry);
+            }
+        }
+        if (changed) {
+            entries.set(List.copyOf(next));
+            dirty = true;
+        }
+    }
+
+    /** Remove every item whose path is under {@code prefix} (inclusive). */
+    public void removeUnder(String prefix) {
+        if (prefix == null || prefix.isBlank()) {
+            return;
+        }
+        String base = normalize(prefix);
+        String withSep = base.endsWith("\\") || base.endsWith("/") ? base : base + "\\";
+        List<IndexEntry> current = entries.get();
+        List<IndexEntry> next = new ArrayList<>(current.size());
+        boolean changed = false;
+        for (IndexEntry entry : current) {
+            String p = normalize(entry.item().path());
+            if (p.equals(base) || p.startsWith(withSep) || p.startsWith(base + "/")) {
+                changed = true;
+            } else {
+                next.add(entry);
+            }
+        }
+        if (changed) {
+            entries.set(List.copyOf(next));
+            dirty = true;
+        }
+    }
+
+    private static String normalize(String path) {
+        return path.replace('/', '\\').toLowerCase(Locale.ROOT);
     }
 
     public void load() {

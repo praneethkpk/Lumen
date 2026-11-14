@@ -12,11 +12,13 @@ import com.sun.jna.platform.win32.WinGDI;
 import com.sun.jna.platform.win32.WinNT;
 import com.sun.jna.platform.win32.WinUser;
 import com.sun.jna.ptr.PointerByReference;
+import dev.lumen.config.Config;
 import dev.lumen.core.IndexItem;
 import dev.lumen.core.ItemKind;
 import javafx.application.Platform;
 import javafx.scene.image.Image;
 import javafx.scene.image.PixelFormat;
+import javafx.scene.image.PixelReader;
 import javafx.scene.image.WritableImage;
 
 import java.util.ArrayList;
@@ -24,12 +26,21 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.security.MessageDigest;
+import java.nio.charset.StandardCharsets;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
+
+import java.awt.image.BufferedImage;
+import javax.imageio.ImageIO;
 
 /**
  * Real Windows shell icons, extracted with {@code SHGetFileInfo} and rendered into JavaFX
@@ -98,7 +109,7 @@ public final class ShellIcons {
         if (source == null) {
             return;
         }
-        String key = source.toLowerCase(Locale.ROOT);
+        String key = cacheKey(source);
 
         // Two visible rows can share one icon (two Chrome windows, two .pdf files). The
         // second caller registers as a waiter instead of starting a duplicate extraction.
@@ -116,8 +127,20 @@ public final class ShellIcons {
 
         EXTRACTOR.execute(() -> {
             Image image = null;
+            Path cacheFile = cacheFile(key);
             try {
-                image = extract(source);
+                if (cacheFile != null && Files.isRegularFile(cacheFile)) {
+                    Image loaded = new Image(cacheFile.toUri().toString(), false);
+                    if (!loaded.isError() && loaded.getWidth() > 0 && loaded.getPixelReader() != null) {
+                        image = loaded;
+                    }
+                }
+                if (image == null) {
+                    image = extract(source);
+                    if (image != null && cacheFile != null) {
+                        writeImage(cacheFile, image);
+                    }
+                }
             } catch (Throwable t) {
                 System.err.println("[icons] could not extract " + source + ": " + t.getMessage());
             }
@@ -150,7 +173,7 @@ public final class ShellIcons {
 
     private static String keyFor(IndexItem item) {
         String source = sourceFor(item);
-        return source == null ? null : source.toLowerCase(Locale.ROOT);
+        return source == null ? null : cacheKey(source);
     }
 
     /** The file whose icon represents this item. Windows results use the app executable. */
@@ -167,6 +190,59 @@ public final class ShellIcons {
         }
         String path = item.path();
         return path == null || path.isBlank() ? null : path;
+    }
+
+    private static String cacheKey(String source) {
+        String base = source.toLowerCase(Locale.ROOT);
+        try {
+            Path path = Path.of(source);
+            if (Files.isRegularFile(path)) {
+                base += "|" + Files.getLastModifiedTime(path).toMillis()
+                        + "|" + Files.size(path);
+            }
+        } catch (IOException | RuntimeException ignored) {
+        }
+        return base;
+    }
+
+    private static Path cacheFile(String key) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(key.getBytes(StandardCharsets.UTF_8));
+            StringBuilder name = new StringBuilder(hash.length * 2);
+            for (byte value : hash) {
+                name.append(String.format("%02x", value));
+            }
+            return Config.dataDir().resolve("icons").resolve(name + ".png");
+        } catch (RuntimeException ignored) {
+            return null;
+        } catch (java.security.NoSuchAlgorithmException ignored) {
+            return null;
+        }
+    }
+
+    private static void writeImage(Path file, Image image) {
+        if (file == null || image == null || image.getPixelReader() == null) {
+            return;
+        }
+        try {
+            int width = (int) image.getWidth();
+            int height = (int) image.getHeight();
+            if (width <= 0 || height <= 0) {
+                return;
+            }
+            BufferedImage buffered = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            PixelReader reader = image.getPixelReader();
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    buffered.setRGB(x, y, reader.getArgb(x, y));
+                }
+            }
+            Files.createDirectories(file.getParent());
+            ImageIO.write(buffered, "png", file.toFile());
+        } catch (IOException | RuntimeException ignored) {
+            // Disk cache is best-effort; the in-memory icon is still used.
+        }
     }
 
     /** Visible for the icon test: runs the full Win32 extraction path synchronously. */

@@ -81,7 +81,35 @@ public final class WindowFocus {
     }
 
     private static HWND overlayHandle() {
-        HWND target = User32.INSTANCE.FindWindow(null, WINDOW_TITLE);
+        return findOwnWindow();
+    }
+
+    /**
+     * Finds the overlay window by its exact title, restricted to this process so a stray
+     * window from another app called "Lumen" can never be mistaken for the overlay.
+     */
+    private static HWND findOwnWindow() {
+        final HWND[] result = { null };
+        int ownPid = Kernel32.INSTANCE.GetCurrentProcessId();
+        try {
+            User32.INSTANCE.EnumWindows((hwnd, data) -> {
+                com.sun.jna.ptr.IntByReference pidRef = new com.sun.jna.ptr.IntByReference();
+                User32.INSTANCE.GetWindowThreadProcessId(hwnd, pidRef);
+                if (pidRef.getValue() != ownPid) {
+                    return true;
+                }
+                char[] buffer = new char[256];
+                int length = User32.INSTANCE.GetWindowText(hwnd, buffer, buffer.length);
+                if (length > 0 && new String(buffer, 0, length).equals(WINDOW_TITLE)) {
+                    result[0] = hwnd;
+                    return false;
+                }
+                return true;
+            }, null);
+        } catch (RuntimeException e) {
+            return null;
+        }
+        HWND target = result[0];
         return target == null || Pointer.nativeValue(target.getPointer()) == 0L ? null : target;
     }
 
@@ -114,7 +142,7 @@ public final class WindowFocus {
     public static boolean isForeground() {
         try {
             User32 user32 = User32.INSTANCE;
-            HWND target = user32.FindWindow(null, WINDOW_TITLE);
+            HWND target = findOwnWindow();
             HWND foreground = user32.GetForegroundWindow();
             return target != null && foreground != null
                     && Pointer.nativeValue(target.getPointer()) != 0L

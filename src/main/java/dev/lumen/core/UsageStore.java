@@ -8,7 +8,9 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -29,8 +31,10 @@ public final class UsageStore {
     };
 
     private final Path file;
+    private final Path pinnedFile;
     private final ObjectMapper mapper = Json.mapper();
     private final Map<String, Usage> usage = new ConcurrentHashMap<>();
+    private final Set<String> pinned = ConcurrentHashMap.newKeySet();
     private final ScheduledExecutorService saver = Executors.newSingleThreadScheduledExecutor(r -> {
         Thread t = new Thread(r, "usage-saver");
         t.setDaemon(true);
@@ -40,7 +44,9 @@ public final class UsageStore {
 
     public UsageStore(Path file) {
         this.file = file;
+        this.pinnedFile = file.resolveSibling("pinned.json");
         load();
+        loadPinned();
     }
 
     private void load() {
@@ -53,6 +59,31 @@ public final class UsageStore {
             }
         } catch (IOException | RuntimeException e) {
             System.err.println("[usage] could not read " + file + ": " + e.getMessage());
+        }
+    }
+
+    private void loadPinned() {
+        try {
+            if (Files.isRegularFile(pinnedFile)) {
+                Set<String> loaded = mapper.readValue(pinnedFile.toFile(), new com.fasterxml.jackson.core.type.TypeReference<Set<String>>() {
+                });
+                if (loaded != null) {
+                    pinned.addAll(loaded);
+                }
+            }
+        } catch (IOException | RuntimeException e) {
+            System.err.println("[usage] could not read " + pinnedFile + ": " + e.getMessage());
+        }
+    }
+
+    private void savePinned() {
+        try {
+            Files.createDirectories(pinnedFile.getParent());
+            Path tmp = pinnedFile.resolveSibling(pinnedFile.getFileName() + ".tmp");
+            mapper.writeValue(tmp.toFile(), new HashSet<>(pinned));
+            Files.move(tmp, pinnedFile, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            System.err.println("[usage] could not save " + pinnedFile + ": " + e.getMessage());
         }
     }
 
@@ -75,15 +106,45 @@ public final class UsageStore {
 
     /** Hot-path variant: the caller already holds a normalized path (see IndexEntry). */
     public int boostNormalized(String normalizedPath) {
+        int boost = 0;
+        if (pinned.contains(normalizedPath)) {
+            boost += 1000;
+        }
         Usage u = usage.get(normalizedPath);
         if (u == null) {
-            return 0;
+            return boost;
         }
-        int boost = Math.min(u.count(), 20) * 3;
+        boost += Math.min(u.count(), 20) * 3;
         if (System.currentTimeMillis() - u.lastUsed() < TimeUnit.HOURS.toMillis(24)) {
             boost += 18;
         }
         return boost;
+    }
+
+    public boolean isPinned(String path) {
+        return isPinnedNormalized(key(path));
+    }
+
+    public boolean isPinnedNormalized(String normalizedPath) {
+        return pinned.contains(normalizedPath);
+    }
+
+    public void pin(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        if (pinned.add(key(path))) {
+            savePinned();
+        }
+    }
+
+    public void unpin(String path) {
+        if (path == null || path.isBlank()) {
+            return;
+        }
+        if (pinned.remove(key(path))) {
+            savePinned();
+        }
     }
 
     public long lastUsed(String path) {

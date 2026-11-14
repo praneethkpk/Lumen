@@ -2,6 +2,7 @@ package dev.lumen;
 
 import dev.lumen.config.Config;
 import dev.lumen.core.IndexStore;
+import dev.lumen.core.IndexWatcher;
 import dev.lumen.core.Indexer;
 import dev.lumen.core.SearchEngine;
 import dev.lumen.core.UsageStore;
@@ -10,6 +11,7 @@ import dev.lumen.platform.InstanceGuard;
 import dev.lumen.platform.SingleInstance;
 import dev.lumen.platform.TrayManager;
 import dev.lumen.providers.CalculatorProvider;
+import dev.lumen.providers.EverythingProvider;
 import dev.lumen.providers.IndexProvider;
 import dev.lumen.providers.Provider;
 import dev.lumen.providers.WebSearchProvider;
@@ -25,6 +27,7 @@ import javafx.util.Duration;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -40,6 +43,8 @@ public final class LumenApp extends Application {
     private IndexStore index;
     private UsageStore usage;
     private Indexer indexer;
+    private IndexWatcher watcher;
+    private volatile boolean watcherStarted;
     private Overlay overlay;
 
     @Override
@@ -55,12 +60,14 @@ public final class LumenApp extends Application {
 
         usage = new UsageStore(config.usagePath());
 
-        List<Provider> providers = List.of(
-                new CalculatorProvider(),
-                new IndexProvider(index, usage, config),
-                new WindowProvider(),
-                new WebSearchProvider(config)
-        );
+        List<Provider> providers = new ArrayList<>();
+        providers.add(new CalculatorProvider());
+        providers.add(new IndexProvider(index, usage, config));
+        providers.add(new WindowProvider());
+        if (EverythingProvider.isAvailable()) {
+            providers.add(new EverythingProvider(config, usage));
+        }
+        providers.add(new WebSearchProvider(config));
 
         // The hotkey goes live before anything expensive (AWT tray init is the slow one),
         // so the launcher is summonable as early as the JVM allows.
@@ -86,7 +93,14 @@ public final class LumenApp extends Application {
             }
         });
 
-        indexer = new Indexer(config, index, usage, () -> Platform.runLater(overlay::refreshIfVisible));
+        indexer = new Indexer(config, index, usage, () -> {
+            Platform.runLater(overlay::refreshIfVisible);
+            if (!watcherStarted) {
+                watcherStarted = true;
+                watcher = new IndexWatcher(config, index, () -> Platform.runLater(overlay::refreshIfVisible));
+                watcher.start();
+            }
+        });
         Thread.ofVirtual().name("indexer").start(indexer::rebuild);
 
         // Show once on a fresh install so the app is discoverable, then stay out of the way.
@@ -178,6 +192,9 @@ public final class LumenApp extends Application {
     }
 
     private void quit() {
+        if (watcher != null) {
+            watcher.stop();
+        }
         HotkeyManager.uninstall();
         TrayManager.uninstall();
         usage.shutdown();
@@ -193,6 +210,9 @@ public final class LumenApp extends Application {
      * disabled.
      */
     private void restart() {
+        if (watcher != null) {
+            watcher.stop();
+        }
         String appPath = System.getProperty("jpackage.app-path");
         HotkeyManager.uninstall();
         TrayManager.uninstall();

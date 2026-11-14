@@ -5,6 +5,8 @@ import com.sun.jna.platform.win32.Shell32;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Opens things through the Windows shell, so shortcuts, folders, documents and URLs all
@@ -20,7 +22,32 @@ public final class ShellLauncher {
     }
 
     public static boolean open(String target) {
-        return execute("open", target);
+        return open(target, null);
+    }
+
+    /** Opens {@code target}, passing {@code parameters} to it (may be {@code null}/blank). */
+    public static boolean open(String target, String parameters) {
+        if (target == null || target.isBlank()) {
+            return false;
+        }
+        // Shell namespace paths (UWP/Store apps) are not directly executable; hand them to
+        // Explorer, which knows how to activate them.
+        if (target.startsWith("shell:")) {
+            try {
+                List<String> command = new ArrayList<>();
+                command.add("explorer.exe");
+                command.add(target);
+                if (parameters != null && !parameters.isBlank()) {
+                    command.add(parameters);
+                }
+                new ProcessBuilder(command).start();
+                return true;
+            } catch (IOException | RuntimeException e) {
+                System.err.println("[shell] could not open " + target + ": " + e.getMessage());
+                return false;
+            }
+        }
+        return execute("open", target, parameters);
     }
 
     /**
@@ -51,13 +78,13 @@ public final class ShellLauncher {
         }
     }
 
-    private static boolean execute(String verb, String target) {
+    private static boolean execute(String verb, String target, String parameters) {
         if (target == null || target.isBlank()) {
             return false;
         }
         try {
             com.sun.jna.platform.win32.WinDef.INT_PTR result =
-                    Shell32.INSTANCE.ShellExecute(null, verb, target, null, null, SW_SHOWNORMAL);
+                    Shell32.INSTANCE.ShellExecute(null, verb, target, parameters, null, SW_SHOWNORMAL);
             boolean ok = result.intValue() > 32;
             if (!ok) {
                 System.err.println("[shell] could not open " + target + " (code " + result.intValue() + ")");

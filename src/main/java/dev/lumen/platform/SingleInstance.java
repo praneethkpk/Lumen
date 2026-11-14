@@ -67,14 +67,22 @@ public final class SingleInstance {
 
     private static void serve(ServerSocket server, Runnable onShow) {
         while (!server.isClosed()) {
-            try (Socket client = server.accept()) {
-                InputStream in = client.getInputStream();
-                String command = new String(in.readNBytes(16), StandardCharsets.UTF_8).trim();
-                if (command.startsWith("show")) {
-                    Platform.runLater(onShow);
-                }
+            try {
+                Socket client = server.accept();
+                client.setSoTimeout(500);
+                Thread.ofVirtual().start(() -> {
+                    try (client) {
+                        InputStream in = client.getInputStream();
+                        String command = new String(in.readNBytes(16), StandardCharsets.UTF_8).trim();
+                        if (command.startsWith("show")) {
+                            Platform.runLater(onShow);
+                        }
+                    } catch (IOException ignored) {
+                        // a client that disconnects early or stalls is harmless
+                    }
+                });
             } catch (IOException ignored) {
-                // a client that disconnects early is harmless
+                // accept failure; keep listening
             }
         }
     }

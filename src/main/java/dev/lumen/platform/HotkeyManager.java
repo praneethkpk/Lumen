@@ -62,6 +62,18 @@ public final class HotkeyManager {
     private static volatile long lifecycleWindow;
     private static boolean readySent;
 
+    // Restartable pump state.
+    private static volatile Thread pumpThread;
+    private static volatile int activeGeneration = 0;
+    private static volatile long lastHeartbeat;
+    private static volatile Spec configuredSpec;
+    private static volatile List<Spec> candidateList = List.of();
+    private static volatile String specText = "";
+    private static volatile Runnable hotkeyCallback = () -> {
+    };
+    private static volatile Consumer<String> readyCallback = ignored -> {
+    };
+
     private HotkeyManager() {
     }
 
@@ -111,11 +123,22 @@ public final class HotkeyManager {
         Spec configured = Spec.parse(spec);
         List<Spec> candidates = candidates(configured);
         candidateSpecs = candidates;
+        configuredSpec = configured;
+        candidateList = candidates;
+        specText = spec;
+        hotkeyCallback = callback == null ? () -> {
+        } : callback;
+        readyCallback = onReady == null ? ignored -> {
+        } : onReady;
         stopped = false;
         readySent = false;
+        activeGeneration = 1;
+        lastHeartbeat = System.currentTimeMillis();
+
         Thread pump = new Thread(
-                () -> pump(configured, candidates, spec, callback, onReady), "global-hotkey");
+                () -> pump(configured, candidates, spec, hotkeyCallback, readyCallback), "global-hotkey");
         pump.setDaemon(true);
+        pumpThread = pump;
         pump.start();
 
         Thread supervisor = new Thread(HotkeyManager::supervise, "hotkey-supervisor");
@@ -138,16 +161,30 @@ public final class HotkeyManager {
 
     private static void pump(Spec configured, List<Spec> candidates, String specText,
                              Runnable callback, Consumer<String> onReady) {
+        int myGeneration = activeGeneration;
+        final Thread thisPump = Thread.currentThread();
         pumpThreadId = Kernel32.INSTANCE.GetCurrentThreadId();
         User32 user32 = User32.INSTANCE;
+
+        // Heartbeat thread: stays alive only while this pump thread is alive, so a dead
+        // pump leaves a stale timestamp the supervisor can react to.
+        Thread heartbeat = new Thread(() -> {
+            while (!stopped && myGeneration == activeGeneration && thisPump.isAlive()) {
+                lastHeartbeat = System.currentTimeMillis();
+                sleepQuietly(1000);
+            }
+        }, "hotkey-heartbeat");
+        heartbeat.setDaemon(true);
+        heartbeat.start();
 
         lifecycleWindow = LifecycleWindow.create(event -> onLifecycleEvent(event));
         if (lifecycleWindow != 0L) {
             System.out.println("[hotkey] lifecycle listener active");
         }
 
-        while (!stopped) {
+        while (!stopped && myGeneration == activeGeneration) {
             Registration registration = register(user32, configured, candidates);
+            lastHeartbeat = System.currentTimeMillis();
             publish(registration);
             if (!readySent) {
                 readySent = true;
@@ -157,11 +194,12 @@ public final class HotkeyManager {
             // Pump until the watchdog asks for a re-registration or the app quits.
             boolean reregister = false;
             WinUser.MSG message = new WinUser.MSG();
-            while (!reregister && !stopped) {
+            while (!reregister && !stopped && myGeneration == activeGeneration) {
                 int result = user32.GetMessage(message, null, 0, 0);
                 if (result == 0) {
                     // WM_QUIT
                     shutdown(user32);
+                    heartbeat.interrupt();
                     return;
                 }
                 if (result == -1) {
@@ -171,6 +209,7 @@ public final class HotkeyManager {
                     sleepQuietly(500);
                     continue;
                 }
+                lastHeartbeat = System.currentTimeMillis();
                 if (message.message == WM_REREGISTER) {
                     reregister = true;
                     continue;
@@ -189,6 +228,7 @@ public final class HotkeyManager {
             unregister(user32);
         }
 
+        heartbeat.interrupt();
         shutdown(user32);
     }
 
@@ -303,13 +343,26 @@ public final class HotkeyManager {
         long lastPrimaryAttempt = 0;
         while (!stopped) {
             sleepQuietly(SUPERVISOR_TICK_MS);
-            if (stopped || pumpThreadId == 0) {
+            if (stopped) {
                 continue;
             }
 
             long now = System.currentTimeMillis();
             long gap = now - lastTick;
             lastTick = now;
+
+            Thread currentPump = pumpThread;
+            if (currentPump == null || !currentPump.isAlive()
+                    || now - lastHeartbeat > 5_000) {
+                System.out.println("[hotkey] pump thread dead or stale; restarting");
+                restartPumpThread();
+                lastTick = now;
+                continue;
+            }
+
+            if (pumpThreadId == 0) {
+                continue;
+            }
 
             if (gap > RESUME_GAP_MS) {
                 // Sleep/resume, RDP reconnect or a stalled thread. Registrations are cheap
@@ -330,6 +383,53 @@ public final class HotkeyManager {
                 postReregister();
             }
         }
+    }
+
+    private static void restartPumpThread() {
+        Thread old = pumpThread;
+        int oldThreadId = pumpThreadId;
+        pumpThreadId = 0;
+
+        // Tell the old pump thread to exit; it unregisters its hotkeys in shutdown().
+        activeGeneration++;
+        if (oldThreadId != 0) {
+            try {
+                User32.INSTANCE.PostThreadMessage(oldThreadId, WM_QUIT,
+                        new WinDef.WPARAM(0), new WinDef.LPARAM(0));
+            } catch (RuntimeException ignored) {
+                // Old thread may already be gone.
+            }
+        }
+
+        if (old != null) {
+            long deadline = System.currentTimeMillis() + 1_000;
+            while (old.isAlive() && System.currentTimeMillis() < deadline) {
+                try {
+                    Thread.sleep(10);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        }
+
+        if (stopped) {
+            return;
+        }
+
+        Spec configured = configuredSpec;
+        List<Spec> candidates = candidateList;
+        if (configured == null) {
+            return;
+        }
+
+        Thread pump = new Thread(
+                () -> pump(configured, candidates, specText, hotkeyCallback, readyCallback),
+                "global-hotkey");
+        pump.setDaemon(true);
+        pumpThread = pump;
+        lastHeartbeat = System.currentTimeMillis();
+        pump.start();
     }
 
     private static void postReregister() {

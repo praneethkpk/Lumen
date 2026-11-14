@@ -24,10 +24,10 @@ public final class Config {
 
     /** Directory names that are never scanned (compared case-insensitively, per segment). */
     public List<String> excludedDirs = List.of(
-            "node_modules", ".git", ".svn", "target", "build", "out", "dist",
-            "bin", "obj", ".venv", "venv", "__pycache__", ".gradle", ".idea",
-            "AppData", "$Recycle.Bin", "System Volume Information", "Windows",
-            "ProgramData", "Program Files", "Program Files (x86)"
+            "node_modules", ".git", ".svn", "target", ".venv", "venv",
+            "__pycache__", ".gradle", ".idea", "AppData", "$Recycle.Bin",
+            "System Volume Information", "Windows", "ProgramData",
+            "Program Files", "Program Files (x86)"
     );
 
     /** Maximum number of files kept in the index. Keeps memory and scan time predictable. */
@@ -87,6 +87,15 @@ public final class Config {
             }
         } catch (IOException | RuntimeException e) {
             System.err.println("[config] could not read " + file + ": " + e.getMessage());
+            try {
+                Path backup = file.resolveSibling(file.getFileName() + ".bak");
+                if (Files.isRegularFile(file) && !Files.exists(backup)) {
+                    Files.copy(file, backup, StandardCopyOption.REPLACE_EXISTING);
+                    System.err.println("[config] backed up broken config to " + backup);
+                }
+            } catch (IOException ignored) {
+                // best effort
+            }
         }
         Config fresh = new Config();
         fresh.save();

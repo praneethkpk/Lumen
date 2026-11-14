@@ -30,7 +30,7 @@ import java.util.Set;
 public final class IndexProvider implements Provider {
 
     /** Upper bound of the app bonus + usage boost, used to skip hopeless candidates. */
-    private static final int MAX_BONUS = 12 + 78; // app bonus + (20 opens * 3) + 24h recency
+    private static final int MAX_BONUS = 12 + 78 + 1000; // app bonus + (20 opens * 3) + 24h recency + pin
 
     /** Baseline for filter-only queries such as {@code ext:pdf}. */
     private static final int FILTER_ONLY_BASE = 100;
@@ -149,7 +149,9 @@ public final class IndexProvider implements Provider {
         }
 
         apps.sort(Comparator
-                .comparingLong((IndexEntry e) -> usage.lastUsedNormalized(e.pathLower())).reversed()
+                .comparingInt((IndexEntry e) -> usage.isPinnedNormalized(e.pathLower()) ? 0 : 1)
+                .thenComparing((IndexEntry a, IndexEntry b) -> Long.compare(
+                        usage.lastUsedNormalized(b.pathLower()), usage.lastUsedNormalized(a.pathLower())))
                 .thenComparing(e -> e.nameLower()));
 
         int limit = Math.min(8, apps.size());

@@ -1,13 +1,16 @@
 package dev.lumen.ui;
 
 import dev.lumen.core.IndexItem;
+import dev.lumen.core.UsageStore;
 import dev.lumen.platform.ShellLauncher;
 import dev.lumen.platform.WindowFocus;
 import javafx.animation.PauseTransition;
+import javafx.scene.control.TextInputDialog;
 import javafx.util.Duration;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Optional;
 import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 
@@ -27,6 +30,7 @@ final class ResultLauncher implements ResultActions.Target {
     private final Runnable summon;
     private final Consumer<String> reportError;
     private final Consumer<String> clipboard;
+    private final UsageStore usage;
 
     /**
      * @param hide        dismisses the overlay before the shell is called
@@ -36,11 +40,19 @@ final class ResultLauncher implements ResultActions.Target {
      */
     ResultLauncher(Runnable hide, Runnable summon, Consumer<String> reportError,
                    Consumer<String> clipboard) {
+        this(hide, summon, reportError, clipboard, null);
+    }
+
+    ResultLauncher(Runnable hide, Runnable summon, Consumer<String> reportError,
+                   Consumer<String> clipboard, UsageStore usage) {
         this.hide = hide;
         this.summon = summon;
         this.reportError = reportError;
         this.clipboard = clipboard;
+        this.usage = usage;
     }
+
+
 
     // ---- ResultActions.Target ------------------------------------------
 
@@ -52,6 +64,16 @@ final class ResultLauncher implements ResultActions.Target {
     @Override
     public void openAsAdmin(IndexItem item) {
         openAsAdmin(item.path());
+    }
+
+    @Override
+    public void openWithArgs(IndexItem item) {
+        openWithArgs(item.path());
+    }
+
+    @Override
+    public void uninstall(IndexItem item) {
+        uninstall(item.path());
     }
 
     @Override
@@ -91,6 +113,52 @@ final class ResultLauncher implements ResultActions.Target {
         hide.run();
         afterRelease(() -> ShellLauncher.openAsAdmin(target),
                 "Could not run " + target + " as administrator");
+    }
+
+    /** Prompts for arguments, then launches the target with them. */
+    void openWithArgs(String target) {
+        if (!launchable(target)) {
+            reportError.accept("Not found: " + target);
+            return;
+        }
+        TextInputDialog dialog = new TextInputDialog();
+        dialog.setTitle("Run with arguments");
+        dialog.setHeaderText(target);
+        dialog.setContentText("Arguments:");
+        Optional<String> result = dialog.showAndWait();
+        if (result.isEmpty()) {
+            return; // cancelled
+        }
+        String args = result.get();
+        hide.run();
+        afterRelease(() -> ShellLauncher.open(target, args),
+                "Could not open " + target + " with arguments");
+    }
+
+    /** Removes a Start Menu shortcut, or opens the Apps settings page otherwise. */
+    void uninstall(String target) {
+        if (target == null || target.isBlank()) {
+            return;
+        }
+        Path path;
+        try {
+            path = Path.of(target);
+        } catch (RuntimeException e) {
+            path = null;
+        }
+        if (path != null && Files.isRegularFile(path)) {
+            String name = path.getFileName().toString().toLowerCase();
+            if (name.endsWith(".lnk") || name.endsWith(".url") || name.endsWith(".appref-ms")) {
+                try {
+                    Files.delete(path);
+                    return;
+                } catch (Exception e) {
+                    System.err.println("[uninstall] could not delete " + path + ": " + e.getMessage());
+                }
+            }
+        }
+        // Fall back to the system's app management surface.
+        ShellLauncher.open("ms-settings:appsfeatures");
     }
 
     void reveal(String target) {

@@ -4,6 +4,7 @@ import dev.lumen.config.Config;
 import dev.lumen.core.Hit;
 import dev.lumen.core.IndexItem;
 import dev.lumen.core.ItemKind;
+import dev.lumen.core.SearchQuery;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -36,6 +37,14 @@ public final class WebSearchProvider implements Provider {
     @Override
     public int order() {
         return 1_000;
+    }
+
+    @Override
+    public List<Hit> search(SearchQuery query) {
+        if (query.isFilterOnly()) {
+            return List.of();
+        }
+        return search(query.raw());
     }
 
     @Override

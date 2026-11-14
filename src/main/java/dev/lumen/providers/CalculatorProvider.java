@@ -77,7 +77,14 @@ public final class CalculatorProvider implements Provider {
         if (!q.chars().anyMatch(Character::isDigit)) {
             return false;
         }
-        String lower = q.toLowerCase(Locale.ROOT);
+        String trimmed = q.trim();
+        // Keep date-like and phone-like inputs out of the calculator: 2025-03-04 or
+        // 1-800-... should be searched for, not evaluated as arithmetic.
+        if (trimmed.matches("\\d{4}[-/]\\d{1,2}([-/]\\d{1,2})?")
+                || trimmed.matches("\\d{1,4}[-/]\\d{3,4}")) {
+            return false;
+        }
+        String lower = trimmed.toLowerCase(Locale.ROOT);
         return lower.contains("+") || lower.contains("-") || lower.contains("*") || lower.contains("/")
                 || lower.contains("%") || lower.contains("^") || lower.contains("(");
     }

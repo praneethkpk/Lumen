@@ -86,7 +86,7 @@ public final class Overlay {
     private final ResultLauncher launcher;
     private final ResultActions resultActions;
     private final Timeline foregroundPoll =
-            new Timeline(new KeyFrame(Duration.millis(200), e -> checkForeground()));
+            new Timeline(new KeyFrame(Duration.millis(POLL_MS), e -> checkForeground()));
     private final boolean hideOnFocusLoss;
     private int awayTicks;
 
@@ -98,8 +98,8 @@ public final class Overlay {
         this.indexSize = indexSize;
         this.hideOnFocusLoss = hideOnFocusLoss;
         this.launcher = new ResultLauncher(this::hide, this::show, this::showError,
-                Overlay::copyToClipboard);
-        this.resultActions = new ResultActions(launcher, usage::record);
+                Overlay::copyToClipboard, usage);
+        this.resultActions = new ResultActions(launcher, usage::record, usage);
     }
 
     public void install() {

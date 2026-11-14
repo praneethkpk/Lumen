@@ -1,6 +1,8 @@
 package dev.lumen.ui;
 
 import dev.lumen.core.IndexItem;
+import dev.lumen.core.ItemKind;
+import dev.lumen.core.UsageStore;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -28,14 +30,29 @@ final class ResultActions {
 
         /** Copies text and dismisses the overlay. */
         void copy(String text);
+
+        /** Opens the item after asking the user for command-line arguments. */
+        default void openWithArgs(IndexItem item) {
+            open(item);
+        }
+
+        /** Removes/uninstalls the item where the platform allows it. */
+        default void uninstall(IndexItem item) {
+        }
     }
 
     private final Target target;
     private final Consumer<String> remember;
+    private final UsageStore usage;
 
     ResultActions(Target target, Consumer<String> remember) {
+        this(target, remember, null);
+    }
+
+    ResultActions(Target target, Consumer<String> remember, UsageStore usage) {
         this.target = target;
         this.remember = remember;
+        this.usage = usage;
     }
 
     List<ActionMenu.Action> forItem(IndexItem item) {
@@ -54,6 +71,23 @@ final class ResultActions {
                         () -> target.copy(item.path())));
                 actions.add(new ActionMenu.Action("Copy name", "",
                         () -> target.copy(item.title())));
+                if (usage != null) {
+                    boolean pinned = usage.isPinned(item.path());
+                    actions.add(new ActionMenu.Action(pinned ? "Unpin" : "Pin to top", "",
+                            () -> {
+                                if (pinned) {
+                                    usage.unpin(item.path());
+                                } else {
+                                    usage.pin(item.path());
+                                }
+                            }));
+                }
+                if (item.kind() == ItemKind.APP) {
+                    actions.add(new ActionMenu.Action("Run with arguments", "",
+                            () -> target.openWithArgs(item)));
+                    actions.add(new ActionMenu.Action("Uninstall", "",
+                            () -> target.uninstall(item)));
+                }
             }
             case WINDOW -> {
                 actions.add(new ActionMenu.Action("Switch to window", "Enter",

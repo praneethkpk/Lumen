@@ -89,9 +89,13 @@ hotkey instead.
 - **Applications** — every `.lnk`, `.url`, `.exe` and `.appref-ms` in the user and machine
   Start Menus.
 - **Files and folders** — everything under the configured roots, skipping hidden items,
-  `node_modules`, `.git`, `target`, `AppData`, and similar noise.
+  `node_modules`, `.git`, `target`, `AppData`, and similar noise. The index updates live
+  as files are created, changed or deleted.
 - **Running windows** — windows you already have open are searchable by title; `Enter`
   switches to that window instead of launching a second copy.
+- **Store apps** — UWP/Store apps (Settings, Calculator, Photos, …) are enumerated and
+  launched through the shell's AppsFolder.
+- **Pin to top** — pin a result from the action sheet so it stays at the top of the list.
 - **Real shell icons** — Explorer's own icon for every app, file and folder, with a kind
   badge as the fallback.
 - **Ranking** — name matches outrank path matches; frequency and recency boost results you
@@ -106,8 +110,9 @@ hotkey instead.
 ### Integrations
 
 - **Web search** — anything else offers "Search the web for …" as the last row.
-- **Everything SDK** — full-disk search through Everything is **planned, not implemented yet**.
-  Today file search covers the folders configured under `roots`.
+- **Full-disk search** — when [Everything](https://www.voidtools.com/) is installed and its
+  service is running, Lumen queries it for disk-wide name search; results rank slightly below
+  your configured roots on ties. Without Everything, search covers the folders under `roots`.
 
 ## Query syntax
 
@@ -192,7 +197,7 @@ scripts\install.ps1
 ```
 
 The first command produces a self-contained app image in `dist\Lumen\` with a bundled runtime
-(~160 MB, no Java required on the target machine). The second copies it to
+(~106 MB, no Java required on the target machine). The second copies it to
 `%LOCALAPPDATA%\Programs\Lumen` and, unless `-NoAutostart` is passed, adds a `Lumen.lnk`
 shortcut to the Startup folder so it launches at login. It then starts the app.
 

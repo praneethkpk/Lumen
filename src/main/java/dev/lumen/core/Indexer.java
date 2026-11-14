@@ -42,6 +42,7 @@ public final class Indexer {
         Set<String> seen = new HashSet<>(8192);
 
         scanStartMenu(items, seen);
+        scanUwpApps(items, seen);
         int apps = items.size();
         scanRoots(items, seen);
 
@@ -57,6 +58,53 @@ public final class Indexer {
         for (Path dir : startMenuDirs()) {
             if (Files.isDirectory(dir)) {
                 walk(dir, items, seen, true, 6);
+            }
+        }
+    }
+
+    private void scanUwpApps(List<IndexItem> items, Set<String> seen) {
+        // Store apps (and other apps surfaced through the shell's AppsFolder) are not on
+        // disk as .lnk files, so the Start Menu walk misses them. Ask the shell for the
+        // list instead; feature-detect by simply skipping when PowerShell is unavailable.
+        ProcessBuilder builder = new ProcessBuilder(
+                "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+                "Get-StartApps | ForEach-Object { $_.Name + [char]9 + $_.AppID }");
+        builder.redirectErrorStream(true);
+        try {
+            Process process = builder.start();
+            try (java.io.BufferedReader reader = new java.io.BufferedReader(
+                    new java.io.InputStreamReader(process.getInputStream(), java.nio.charset.StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (!hasRoom(items)) {
+                        break;
+                    }
+                    int tab = line.indexOf('\t');
+                    if (tab <= 0 || tab == line.length() - 1) {
+                        continue;
+                    }
+                    String name = line.substring(0, tab).trim();
+                    String appId = line.substring(tab + 1).trim();
+                    if (name.isBlank() || appId.isBlank()) {
+                        continue;
+                    }
+                    // Get-StartApps also lists desktop apps; those are already covered by the
+                    // Start Menu walk. UWP/Store AUMIDs always contain a '!', so use that as
+                    // the filter and avoid duplicate rows.
+                    if (!appId.contains("!")) {
+                        continue;
+                    }
+                    // Skip entries that are already covered by the Start Menu walk (they
+                    // would only duplicate a .lnk with a worse launch target).
+                    String target = "shell:AppsFolder\\" + appId;
+                    add(items, seen, IndexItem.app(name, target));
+                }
+            }
+            process.waitFor();
+        } catch (IOException | InterruptedException e) {
+            System.err.println("[index] UWP app enumeration unavailable: " + e.getMessage());
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
             }
         }
     }
@@ -134,13 +182,13 @@ public final class Indexer {
         return items.size() < config.maxIndexedFiles;
     }
 
-    private static void add(List<IndexItem> items, Set<String> seen, IndexItem item) {
+    public static void add(List<IndexItem> items, Set<String> seen, IndexItem item) {
         if (seen.add(item.path().toLowerCase(Locale.ROOT))) {
             items.add(item);
         }
     }
 
-    private static boolean isExcludedDir(Path dir, Set<String> excluded) {
+    public static boolean isExcludedDir(Path dir, Set<String> excluded) {
         String name = dir.getFileName().toString();
         if (name.startsWith(".")) {
             return true;
@@ -155,7 +203,7 @@ public final class Indexer {
         }
     }
 
-    private static boolean isIgnoredFile(Path file) {
+    public static boolean isIgnoredFile(Path file) {
         String name = file.getFileName().toString();
         if (name.startsWith(".") || name.startsWith("~$")) {
             return true;
@@ -171,17 +219,17 @@ public final class Indexer {
         }
     }
 
-    private static boolean isAppFile(String name) {
+    public static boolean isAppFile(String name) {
         int dot = name.lastIndexOf('.');
         return dot > 0 && APP_EXTENSIONS.contains(name.substring(dot + 1).toLowerCase(Locale.ROOT));
     }
 
-    private static String stripExtension(String name) {
+    public static String stripExtension(String name) {
         int dot = name.lastIndexOf('.');
         return dot > 0 ? name.substring(0, dot) : name;
     }
 
-    private static String shorten(Path path, String home) {
+    public static String shorten(Path path, String home) {
         if (path == null) {
             return "";
         }
@@ -190,7 +238,7 @@ public final class Indexer {
         return full.startsWith(prefix) ? "~\\" + full.substring(prefix.length()) : full;
     }
 
-    private static List<Path> startMenuDirs() {
+    public static List<Path> startMenuDirs() {
         List<Path> dirs = new ArrayList<>(3);
         String appData = System.getenv("APPDATA");
         String programData = System.getenv("PROGRAMDATA");
