@@ -39,6 +39,7 @@ import javafx.util.Duration;
 import java.awt.MouseInfo;
 import java.awt.Point;
 import java.util.List;
+import java.util.function.BooleanSupplier;
 import java.util.function.IntSupplier;
 
 /**
@@ -72,6 +73,8 @@ public final class Overlay {
     private final SearchEngine engine;
     private final UsageStore usage;
     private final IntSupplier indexSize;
+    private final BooleanSupplier rebuilding;
+    private final BooleanSupplier truncated;
 
     private final VBox shell = new VBox(6);
     private final TextField field = new TextField();
@@ -92,10 +95,17 @@ public final class Overlay {
 
     public Overlay(Stage stage, SearchEngine engine, UsageStore usage, IntSupplier indexSize,
                    boolean hideOnFocusLoss) {
+        this(stage, engine, usage, indexSize, () -> false, () -> false, hideOnFocusLoss);
+    }
+
+    public Overlay(Stage stage, SearchEngine engine, UsageStore usage, IntSupplier indexSize,
+                   BooleanSupplier rebuilding, BooleanSupplier truncated, boolean hideOnFocusLoss) {
         this.stage = stage;
         this.engine = engine;
         this.usage = usage;
         this.indexSize = indexSize;
+        this.rebuilding = rebuilding;
+        this.truncated = truncated;
         this.hideOnFocusLoss = hideOnFocusLoss;
         this.launcher = new ResultLauncher(this::hide, this::show, this::showError,
                 Overlay::copyToClipboard, usage);
@@ -466,7 +476,15 @@ public final class Overlay {
             list.scrollTo(target);
         }
 
-        footerRight.setText(String.format("%,d indexed", indexSize.getAsInt()));
+        StringBuilder status = new StringBuilder();
+        status.append(String.format("%,d indexed", indexSize.getAsInt()));
+        if (truncated.getAsBoolean()) {
+            status.append(" · truncated");
+        }
+        if (rebuilding.getAsBoolean()) {
+            status.append(" · indexing…");
+        }
+        footerRight.setText(status.toString());
         resize();
     }
 

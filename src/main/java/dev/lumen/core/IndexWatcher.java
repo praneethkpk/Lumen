@@ -31,6 +31,7 @@ public final class IndexWatcher {
     private final Config config;
     private final IndexStore store;
     private final Runnable onFinished;
+    private final Runnable rebuildFallback;
     private final Set<String> excluded = new HashSet<>();
 
     private volatile boolean running = true;
@@ -38,9 +39,14 @@ public final class IndexWatcher {
     private final ConcurrentHashMap<WatchKey, Path> rootsByKey = new ConcurrentHashMap<>();
 
     public IndexWatcher(Config config, IndexStore store, Runnable onFinished) {
+        this(config, store, onFinished, null);
+    }
+
+    public IndexWatcher(Config config, IndexStore store, Runnable onFinished, Runnable rebuildFallback) {
         this.config = config;
         this.store = store;
         this.onFinished = onFinished;
+        this.rebuildFallback = rebuildFallback;
         for (String name : config.excludedDirs) {
             excluded.add(name.toLowerCase(Locale.ROOT));
         }
@@ -115,8 +121,11 @@ public final class IndexWatcher {
 
                 if (overflow) {
                     // Fall back to a full rebuild when the OS drops events.
-                    new Indexer(config, store, null, () -> {
-                    }).rebuild();
+                    if (rebuildFallback != null) {
+                        rebuildFallback.run();
+                    } else {
+                        new Indexer(config, store, null, null).rebuild();
+                    }
                     continue;
                 }
 

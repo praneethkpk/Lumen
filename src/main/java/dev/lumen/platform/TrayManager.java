@@ -71,6 +71,12 @@ public final class TrayManager {
 
     public static void install(Runnable openAction, Runnable reindexAction,
                                Runnable restartAction, Runnable quitAction) {
+        install(openAction, reindexAction, restartAction, null, null, quitAction);
+    }
+
+    public static void install(Runnable openAction, Runnable reindexAction,
+                               Runnable restartAction, Runnable openLogAction,
+                               Runnable openDataAction, Runnable quitAction) {
         if (!SystemTray.isSupported()) {
             System.err.println("[tray] system tray not supported");
             return;
@@ -96,15 +102,27 @@ public final class TrayManager {
                 });
                 restart.setEnabled(restartAction != null);
 
-                MenuItem quit = new MenuItem("Quit");
-                quit.addActionListener(e -> quitAction.run());
-
                 menu.add(statusItem);
                 menu.addSeparator();
                 menu.add(open);
                 menu.add(reindex);
                 menu.add(restart);
+
+                if (openLogAction != null) {
+                    MenuItem openLog = new MenuItem("Open log");
+                    openLog.addActionListener(e -> openLogAction.run());
+                    menu.addSeparator();
+                    menu.add(openLog);
+                }
+                if (openDataAction != null) {
+                    MenuItem openData = new MenuItem("Open data folder");
+                    openData.addActionListener(e -> openDataAction.run());
+                    menu.add(openData);
+                }
+
                 menu.addSeparator();
+                MenuItem quit = new MenuItem("Quit");
+                quit.addActionListener(e -> quitAction.run());
                 menu.add(quit);
 
                 TrayIcon icon = new TrayIcon(createIcon(32), TITLE + " — " + statusText, menu);

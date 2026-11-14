@@ -13,6 +13,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Builds the index from the Start Menu plus the configured folders.
@@ -28,6 +29,8 @@ public final class Indexer {
     private final IndexStore store;
     private final UsageStore usage;
     private final Runnable onFinished;
+    private final AtomicBoolean rebuilding = new AtomicBoolean(false);
+    private volatile boolean truncated;
 
     public Indexer(Config config, IndexStore store, UsageStore usage, Runnable onFinished) {
         this.config = config;
@@ -36,22 +39,43 @@ public final class Indexer {
         this.onFinished = onFinished;
     }
 
+    /** Single-flight rebuild: if one is already running, returns immediately. */
     public void rebuild() {
-        long started = System.nanoTime();
-        List<IndexItem> items = new ArrayList<>(4096);
-        Set<String> seen = new HashSet<>(8192);
+        if (!rebuilding.compareAndSet(false, true)) {
+            System.out.println("[index] rebuild already running; skipping");
+            return;
+        }
+        try {
+            long started = System.nanoTime();
+            List<IndexItem> items = new ArrayList<>(4096);
+            Set<String> seen = new HashSet<>(8192);
 
-        scanStartMenu(items, seen);
-        scanUwpApps(items, seen);
-        int apps = items.size();
-        scanRoots(items, seen);
+            scanStartMenu(items, seen);
+            scanUwpApps(items, seen);
+            int apps = items.size();
+            scanRoots(items, seen);
 
-        store.replace(items);
-        store.save();
+            truncated = items.size() >= config.maxIndexedFiles;
+            store.replace(items);
+            store.save();
 
-        long ms = (System.nanoTime() - started) / 1_000_000;
-        System.out.println("[index] " + items.size() + " items (" + apps + " apps) in " + ms + " ms");
-        onFinished.run();
+            long ms = (System.nanoTime() - started) / 1_000_000;
+            System.out.println("[index] " + items.size() + " items (" + apps + " apps) in " + ms
+                    + " ms" + (truncated ? " (truncated)" : ""));
+            if (onFinished != null) {
+                onFinished.run();
+            }
+        } finally {
+            rebuilding.set(false);
+        }
+    }
+
+    public boolean isRebuilding() {
+        return rebuilding.get();
+    }
+
+    public boolean isTruncated() {
+        return truncated;
     }
 
     private void scanStartMenu(List<IndexItem> items, Set<String> seen) {

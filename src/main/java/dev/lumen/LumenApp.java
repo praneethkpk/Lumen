@@ -8,6 +8,7 @@ import dev.lumen.core.SearchEngine;
 import dev.lumen.core.UsageStore;
 import dev.lumen.platform.HotkeyManager;
 import dev.lumen.platform.InstanceGuard;
+import dev.lumen.platform.ShellLauncher;
 import dev.lumen.platform.SingleInstance;
 import dev.lumen.platform.TrayManager;
 import dev.lumen.providers.CalculatorProvider;
@@ -80,6 +81,8 @@ public final class LumenApp extends Application {
         mark("hotkey");
 
         overlay = new Overlay(stage, new SearchEngine(providers, config), usage, index::size,
+                () -> indexer != null && indexer.isRebuilding(),
+                () -> indexer != null && indexer.isTruncated(),
                 config.hideOnFocusLoss);
         overlay.install();
         HotkeyManager.setDisplayChangeListener(overlay::onDisplayChange);
@@ -97,7 +100,9 @@ public final class LumenApp extends Application {
             Platform.runLater(overlay::refreshIfVisible);
             if (!watcherStarted) {
                 watcherStarted = true;
-                watcher = new IndexWatcher(config, index, () -> Platform.runLater(overlay::refreshIfVisible));
+                watcher = new IndexWatcher(config, index,
+                        () -> Platform.runLater(overlay::refreshIfVisible),
+                        () -> Thread.ofVirtual().name("reindex").start(indexer::rebuild));
                 watcher.start();
             }
         });
@@ -124,6 +129,8 @@ public final class LumenApp extends Application {
                 () -> Platform.runLater(overlay::show),
                 () -> Thread.ofVirtual().name("reindex").start(indexer::rebuild),
                 packaged ? this::restart : null,
+                () -> ShellLauncher.open(Config.dataDir().resolve("lumen.log").toString()),
+                () -> ShellLauncher.open(Config.dataDir().toString()),
                 this::quit
         );
         mark("tray requested");
