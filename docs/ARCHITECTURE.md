@@ -141,12 +141,24 @@ window handle stored in `path`, the rest launch through the shell).
 
 - **Hotkey** — `RegisterHotKey` + a dedicated thread running `GetMessage`, delivered to the
   UI with `Platform.runLater`. Chosen over a low-level keyboard hook: no elevation issues,
-  no per-keystroke cost, and the OS does the matching. Falls back to `Ctrl+Alt+Space` if the
-  configured combo is taken. A watchdog thread re-runs registration after sleep/resume
-  (detected as a wall-clock gap), while the hotkey is unavailable, and every 15 s while the
-  backup is carrying the load, so the configured key is reclaimed when the other app exits.
-  All re-registration happens on the pump thread via `PostThreadMessage`, because
+  no per-keystroke cost, and the OS does the matching. The configured combination is tried
+  first, then `Ctrl+Alt+Space`, `Ctrl+Shift+Space` and ``Alt+` ``; the first two free
+  combinations are registered, so a taken key degrades to a named fallback instead of a dead
+  shortcut. A watchdog thread re-runs registration after sleep/resume (detected as a
+  wall-clock gap), while the hotkey is unavailable, and every 15 s while a fallback is
+  carrying the load, so the configured key is reclaimed when the other app exits. All
+  re-registration happens on the pump thread via `PostThreadMessage`, because
   `RegisterHotKey` binds to the calling thread.
+- **Lifecycle** — a never-shown `WS_POPUP` window (created on the pump thread, so one message
+  loop serves everything) receives `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` and
+  `WM_DISPLAYCHANGE`; session notifications are enabled with
+  `WTSRegisterSessionNotification`. Resume, unlock and reconnect re-register the hotkey;
+  display changes re-center the overlay on the new work area. Message-only windows would not
+  receive these broadcasts, which is why this is a real top-level window.
+- **Crash containment** — `Log.install()` also sets the default uncaught-exception handler:
+  the trace goes to `lumen.log`, the tray stays alive, and a balloon says the app is still
+  running. The tray menu offers **Restart Lumen**, which releases the instance lock before
+  relaunching the app image.
 - **Launching** — `Shell32.ShellExecute("open", …)` so shortcuts, documents, folders and URLs
   all resolve exactly as in Explorer. `explorer /select,` handles "show in folder".
 - **Running windows** — `EnumWindows` lists visible, titled, non-tool windows that are not
@@ -169,9 +181,14 @@ window handle stored in `path`, the rest launch through the shell).
   immediately. `hideOnFocusLoss=false` keeps it open until `Esc` or the hotkey. Summon
   retries foreground activation at 0/60/150/300 ms and hides if activation never succeeds,
   rather than leaving an unfocused panel on top.
-- **Tray** — AWT `SystemTray` with a live hotkey-status row, open, rebuild index and quit, so
-  the app is usable even if the hotkey could not be registered. The tooltip always names the
-  active combination; the status text is stored without touching AWT until the icon exists,
-  so start-up stays fast.
+- **Tray** — AWT `SystemTray` with a live hotkey-status row, open, rebuild index, restart and
+  quit, so the app is usable even if the hotkey could not be registered. The tooltip always
+  names the active combination; the status text is stored without touching AWT until the icon
+  exists, so start-up stays fast.
 - **Single instance** — a file lock in `%LOCALAPPDATA%\\Lumen\instance.lock` stops two
-  copies from fighting over the hotkey and tray icon.
+  copies from fighting over the hotkey and tray icon. The handoff listener takes the first
+  free port in `51733–51742` and records it in `instance.port`; a second launch reads that
+  file and otherwise probes the range, so an unrelated app on one port cannot break the
+  handoff.
+- **Self-test** — 1.2 s after start, one `[self-test] ok/fail` line records the live hotkey,
+  tray state, index size and overlay readiness. It is the first thing to read in a bug report.

@@ -56,8 +56,10 @@ scripts\install.ps1
 Lumen starts in the tray and stays out of the way. Press **Alt+Space** from anywhere to summon
 it; the overlay also opens once on a fresh install so you know it works.
 
-> **Ctrl+Alt+Space** is always registered as a backup, so the launcher stays usable if another
-> app owns Alt+Space. The active combination is shown in the tray tooltip and logged at startup.
+> If another app owns **Alt+Space**, Lumen falls back through **Ctrl+Alt+Space**,
+> **Ctrl+Shift+Space** and **Alt+`**; the first two free combinations are registered. The
+> active combination is shown in the tray tooltip, in the first-run balloon and in the
+> startup log.
 
 ## Keys
 
@@ -258,15 +260,16 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the design rationale,
 Shipped:
 
 - [x] App launch + file search
-- [x] Global hotkey overlay with a permanent backup combination
-- [x] Hotkey supervision: re-registration after loss, sleep/resume and RDP sessions
+- [x] Global hotkey overlay with a four-key fallback chain
+- [x] Hotkey supervision: native power/session/display events and re-registration after loss
 - [x] Native foreground tracking so the overlay never blocks Alt+Tab or clicks
 - [x] Calculator + unit conversion
 - [x] Web search fallback
 - [x] Real shell icons for apps, files and folders
 - [x] Running-window switching by title
 - [x] Provider-based extensibility
-- [x] Single instance, tray fallback, file logging
+- [x] Crash containment, a per-launch self-test, single instance with port fallback, tray
+      restart, file logging
 
 Planned, in priority order — see [docs/ROADMAP.md](docs/ROADMAP.md) for targets, acceptance
 criteria and effort estimates:

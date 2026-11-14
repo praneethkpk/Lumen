@@ -16,9 +16,11 @@ import dev.lumen.providers.WebSearchProvider;
 import dev.lumen.providers.WindowProvider;
 import dev.lumen.ui.Overlay;
 import dev.lumen.util.Log;
+import javafx.animation.PauseTransition;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.stage.Stage;
+import javafx.util.Duration;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -73,6 +75,7 @@ public final class LumenApp extends Application {
         overlay = new Overlay(stage, new SearchEngine(providers, config), usage, index::size,
                 config.hideOnFocusLoss);
         overlay.install();
+        HotkeyManager.setDisplayChangeListener(overlay::onDisplayChange);
         mark("overlay");
 
         // Launching the exe again (or double-clicking it) opens this instance instead of
@@ -101,12 +104,47 @@ public final class LumenApp extends Application {
         }
 
         // AWT (SystemTray) pulls in its own toolkit; keep it off the critical path.
+        // Restart needs the packaged app image; in a development run the item stays disabled.
+        boolean packaged = System.getProperty("jpackage.app-path") != null;
         TrayManager.install(
                 () -> Platform.runLater(overlay::show),
                 () -> Thread.ofVirtual().name("reindex").start(indexer::rebuild),
+                packaged ? this::restart : null,
                 this::quit
         );
         mark("tray requested");
+
+        // One line that says whether this launch is healthy, after the tray has settled.
+        PauseTransition settle = new PauseTransition(Duration.seconds(1.2));
+        settle.setOnFinished(e -> selfTest());
+        settle.play();
+    }
+
+    /**
+     * Verifies the promises the launcher makes, once per launch: the shortcut is live, the
+     * tray exists, the index loaded and the overlay is constructed. The marker is the first
+     * thing to look at when someone reports "it didn't work".
+     */
+    private void selfTest() {
+        HotkeyManager.Status hotkey = HotkeyManager.currentStatus();
+        boolean tray = TrayManager.isInstalled();
+        boolean overlayReady = overlay != null && overlay.isReady();
+        boolean indexLoaded = index != null;
+        boolean ok = hotkey.registered() && tray && overlayReady && indexLoaded;
+
+        String line = "[self-test] " + (ok ? "ok" : "fail")
+                + " hotkey=" + (hotkey.registered() ? hotkey.label() : "unavailable")
+                + " tray=" + tray
+                + " index=" + (index == null ? "none" : index.size())
+                + " overlay=" + overlayReady;
+        if (ok) {
+            System.out.println(line);
+        } else {
+            System.err.println(line);
+            if (!hotkey.registered()) {
+                System.err.println("[self-test] no shortcut is live; use the tray icon");
+            }
+        }
     }
 
     /** Confirms the shortcut once, and always explains when the requested one was taken. */
@@ -149,6 +187,30 @@ public final class LumenApp extends Application {
         System.exit(0);
     }
 
+    /**
+     * Relaunch through the app image. The instance lock is released first so the new process
+     * can acquire it; in a development run there is no app image, so the tray item stays
+     * disabled.
+     */
+    private void restart() {
+        String appPath = System.getProperty("jpackage.app-path");
+        HotkeyManager.uninstall();
+        TrayManager.uninstall();
+        usage.shutdown();
+        index.flush();
+        InstanceGuard.release();
+        if (appPath != null && !appPath.isBlank()) {
+            try {
+                new ProcessBuilder(appPath).start();
+                System.out.println("[app] restarting from " + appPath);
+            } catch (IOException e) {
+                System.err.println("[app] restart failed: " + e.getMessage());
+            }
+        }
+        Platform.exit();
+        System.exit(0);
+    }
+
     @Override
     public void stop() {
         HotkeyManager.uninstall();
@@ -159,6 +221,8 @@ public final class LumenApp extends Application {
 
     public static void main(String[] args) {
         Log.install();
+        Log.setCrashListener(error -> TrayManager.notify("Lumen hit an error",
+                "It is still running. Open the log or restart from the tray icon."));
 
         if (!InstanceGuard.tryAcquire()) {
             boolean opened = SingleInstance.requestShow();

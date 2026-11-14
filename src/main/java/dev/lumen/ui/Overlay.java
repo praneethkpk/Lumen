@@ -362,6 +362,18 @@ public final class Overlay {
         }
     }
 
+    /** True once the stage and its scene exist, so a self-test can report on the UI. */
+    public boolean isReady() {
+        return root != null && stage.getScene() != null;
+    }
+
+    /** Re-centers and re-sizes after a monitor is added, removed or its DPI changes. */
+    public void onDisplayChange() {
+        if (stage.isShowing()) {
+            resize();
+        }
+    }
+
     private void resize() {
         int rows = Math.min(list.getItems().size(), MAX_VISIBLE_ROWS);
         double height = rows == 0 ? 56 : rows * ROW_HEIGHT + 4;

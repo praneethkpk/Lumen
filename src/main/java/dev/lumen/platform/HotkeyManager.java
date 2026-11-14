@@ -6,6 +6,8 @@ import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.WinUser;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 
@@ -15,25 +17,31 @@ import java.util.function.Consumer;
  * <p>Chosen over a low-level keyboard hook: no elevation surprises, no per-keystroke
  * overhead, and Windows itself does the matching.
  *
- * <p>Registration is supervised. Windows can drop or refuse a registration after a
- * sleep/resume, an RDP reconnect or a user switch, and another app may own the key when
- * Lumen starts and release it later. A watchdog therefore re-runs registration and
- * publishes its state, so a dead shortcut is always visible instead of silent.
+ * <p>Registration is supervised and always ends with a working shortcut when one is
+ * available. Windows can drop or refuse a registration after a sleep/resume, an RDP
+ * reconnect or a user switch, and another app may own the configured key when Lumen starts
+ * and release it later. A watchdog re-runs registration, a hidden window listens for the
+ * power/session/display broadcasts that cause those drops, and the configured combination
+ * falls back through {@link #FALLBACKS} until something is free. Every transition is logged
+ * and published to the tray, so a dead shortcut is visible instead of silent.
  */
 public final class HotkeyManager {
 
     private static final int PRIMARY_ID = 0xB00B;
     private static final int BACKUP_ID = 0xB00C;
-    private static final String BACKUP_COMBO = "CTRL+ALT+SPACE";
     private static final int WM_HOTKEY = 0x0312;
     private static final int WM_QUIT = 0x0012;
     private static final int WM_APP = 0x8000;
     /** Thread message: unregister and register the pair again. */
     private static final int WM_REREGISTER = WM_APP + 1;
 
+    /** Tried in order when the configured combination is already owned by another app. */
+    private static final List<String> FALLBACKS =
+            List.of("CTRL+ALT+SPACE", "CTRL+SHIFT+SPACE", "ALT+`");
+
     /** How often the watchdog looks at the registration, in milliseconds. */
     private static final long SUPERVISOR_TICK_MS = 2_000;
-    /** Retry interval for reclaiming the primary key while a backup is carrying the load. */
+    /** Retry interval for reclaiming the configured key while a fallback carries the load. */
     private static final long PRIMARY_RETRY_MS = 15_000;
     /** A wall-clock jump larger than this means the machine slept or the thread stalled. */
     private static final long RESUME_GAP_MS = 8_000;
@@ -44,8 +52,14 @@ public final class HotkeyManager {
     private static volatile Status status = new Status(false, false, "", "starting");
     private static volatile Consumer<Status> statusListener = ignored -> {
     };
+    private static volatile Runnable displayChangeListener = () -> {
+    };
     private static volatile int pumpThreadId;
     private static volatile boolean stopped;
+    private static volatile Spec activePrimary;
+    private static volatile Spec activeBackup;
+    private static volatile List<Spec> candidateSpecs = List.of();
+    private static volatile long lifecycleWindow;
     private static boolean readySent;
 
     private HotkeyManager() {
@@ -74,6 +88,12 @@ public final class HotkeyManager {
         listenerSafely(status);
     }
 
+    /** Runs after a monitor or DPI change, on the JavaFX thread. */
+    public static void setDisplayChangeListener(Runnable listener) {
+        displayChangeListener = listener == null ? () -> {
+        } : listener;
+    }
+
     /** Installs the hotkey. The callback runs on the JavaFX thread. */
     public static void install(String spec, Runnable callback) {
         install(spec, callback, label -> {
@@ -85,13 +105,16 @@ public final class HotkeyManager {
      *
      * @param callback runs on the JavaFX thread when the hotkey is pressed
      * @param onReady  receives the effective key combination once, or {@code null} when no
-     *                 hotkey could be registered (another app owns it)
+     *                 hotkey could be registered (another app owns the whole chain)
      */
     public static void install(String spec, Runnable callback, Consumer<String> onReady) {
-        Spec primary = Spec.parse(spec);
+        Spec configured = Spec.parse(spec);
+        List<Spec> candidates = candidates(configured);
+        candidateSpecs = candidates;
         stopped = false;
         readySent = false;
-        Thread pump = new Thread(() -> pump(primary, spec, callback, onReady), "global-hotkey");
+        Thread pump = new Thread(
+                () -> pump(configured, candidates, spec, callback, onReady), "global-hotkey");
         pump.setDaemon(true);
         pump.start();
 
@@ -100,19 +123,35 @@ public final class HotkeyManager {
         supervisor.start();
     }
 
-    private static void pump(Spec primary, String specText, Runnable callback, Consumer<String> onReady) {
+    /** The configured combination first, then each fallback that is not a duplicate. */
+    static List<Spec> candidates(Spec configured) {
+        List<Spec> specs = new ArrayList<>(FALLBACKS.size() + 1);
+        specs.add(configured);
+        for (String fallback : FALLBACKS) {
+            Spec spec = Spec.parse(fallback);
+            if (specs.stream().noneMatch(existing -> sameBinding(existing, spec))) {
+                specs.add(spec);
+            }
+        }
+        return specs;
+    }
+
+    private static void pump(Spec configured, List<Spec> candidates, String specText,
+                             Runnable callback, Consumer<String> onReady) {
         pumpThreadId = Kernel32.INSTANCE.GetCurrentThreadId();
         User32 user32 = User32.INSTANCE;
-        Spec backup = Spec.parse(BACKUP_COMBO);
+
+        lifecycleWindow = LifecycleWindow.create(event -> onLifecycleEvent(event));
+        if (lifecycleWindow != 0L) {
+            System.out.println("[hotkey] lifecycle listener active");
+        }
 
         while (!stopped) {
-            Registration registration = register(user32, primary, backup, specText);
+            Registration registration = register(user32, configured, candidates);
             publish(registration);
             if (!readySent) {
                 readySent = true;
-                String effective = registration.primaryOk() ? primary.label()
-                        : registration.backupOk() ? backup.label() : null;
-                notifyReady(onReady, effective);
+                notifyReady(onReady, registration.any() ? registration.label() : null);
             }
 
             // Pump until the watchdog asks for a re-registration or the app quits.
@@ -122,8 +161,7 @@ public final class HotkeyManager {
                 int result = user32.GetMessage(message, null, 0, 0);
                 if (result == 0) {
                     // WM_QUIT
-                    unregister(user32);
-                    pumpThreadId = 0;
+                    shutdown(user32);
                     return;
                 }
                 if (result == -1) {
@@ -139,8 +177,9 @@ public final class HotkeyManager {
                 }
                 if (message.message == WM_HOTKEY) {
                     int id = message.wParam.intValue();
+                    Spec pressed = id == BACKUP_ID ? activeBackup : activePrimary;
                     System.out.println("[hotkey] pressed "
-                            + (id == BACKUP_ID ? backup.label() : status.label()));
+                            + (pressed == null ? "unknown" : pressed.label()));
                     javafx.application.Platform.runLater(callback);
                 }
                 user32.TranslateMessage(message);
@@ -150,37 +189,82 @@ public final class HotkeyManager {
             unregister(user32);
         }
 
-        unregister(user32);
-        pumpThreadId = 0;
+        shutdown(user32);
     }
 
-    private static Registration register(User32 user32, Spec primary, Spec backup, String specText) {
+    /**
+     * Power/session events invalidate registrations; display changes move the overlay.
+     * Both happen on the pump thread, so re-registration can simply be posted back into the
+     * loop that is already running.
+     */
+    private static void onLifecycleEvent(LifecycleWindow.Event event) {
+        switch (event) {
+            case RESUME -> {
+                System.out.println("[hotkey] resume/session event; re-registering");
+                postReregister();
+                notifyDisplayChange();
+            }
+            case DISPLAY -> notifyDisplayChange();
+        }
+    }
+
+    private static void notifyDisplayChange() {
+        try {
+            javafx.application.Platform.runLater(() -> displayChangeListener.run());
+        } catch (IllegalStateException ignored) {
+            // Toolkit shutting down.
+        }
+    }
+
+    private static Registration register(User32 user32, Spec configured, List<Spec> candidates) {
         // Unregistering first makes the retry path idempotent: RegisterHotKey fails with
         // "already registered" for a binding we still own.
         unregister(user32);
 
-        boolean primaryOk = user32.RegisterHotKey(null, PRIMARY_ID, primary.mods(), primary.vk());
-        int primaryError = primaryOk ? 0 : Native.getLastError();
-        boolean backupOk = !sameBinding(primary, backup)
-                && user32.RegisterHotKey(null, BACKUP_ID, backup.mods(), backup.vk());
-        return new Registration(primaryOk, backupOk, primary, backup, primaryError, specText);
+        Spec primary = null;
+        Spec backup = null;
+        int firstError = 0;
+
+        for (Spec candidate : candidates) {
+            if (primary != null && backup != null) {
+                break;
+            }
+            if (primary != null && sameBinding(primary, candidate)) {
+                continue;
+            }
+            if (primary == null) {
+                if (user32.RegisterHotKey(null, PRIMARY_ID, candidate.mods(), candidate.vk())) {
+                    primary = candidate;
+                } else {
+                    firstError = Native.getLastError();
+                }
+            } else if (backup == null
+                    && user32.RegisterHotKey(null, BACKUP_ID, candidate.mods(), candidate.vk())) {
+                backup = candidate;
+            }
+        }
+
+        activePrimary = primary;
+        activeBackup = backup;
+        return new Registration(primary, backup, configured, firstError);
     }
 
     private static void publish(Registration registration) {
         Status previous = status;
-        boolean registered = registration.primaryOk() || registration.backupOk();
-        String label = registration.primaryOk() ? registration.primary().label()
-                : registration.backupOk() ? registration.backup().label() : "";
+        boolean registered = registration.any();
+        boolean configuredActive = registration.configuredActive();
+        String label = registered ? registration.label() : "";
         String detail;
         if (!registered) {
             detail = "Hotkey unavailable";
-        } else if (registration.primaryOk()) {
+        } else if (configuredActive) {
             detail = "Hotkey: " + label;
         } else {
-            detail = "Hotkey: " + label + " (fallback; " + registration.specText() + " is taken)";
+            detail = "Hotkey: " + label + " (" + registration.configured().label()
+                    + " is taken)";
         }
 
-        Status next = new Status(registered, registration.primaryOk(), label, detail);
+        Status next = new Status(registered, configuredActive, label, detail);
         status = next;
         listenerSafely(next);
 
@@ -192,15 +276,26 @@ public final class HotkeyManager {
         }
 
         if (!registered) {
-            System.err.println("[hotkey] could not register " + registration.specText()
-                    + " or " + BACKUP_COMBO + " (win32 error " + registration.primaryError()
-                    + "); open the search bar from the tray icon");
-        } else if (registration.primaryOk()) {
+            System.err.println("[hotkey] every candidate is taken (win32 error "
+                    + registration.error() + "); tried " + describeCandidates()
+                    + "; open the search bar from the tray icon");
+        } else if (configuredActive) {
             System.out.println("[hotkey] registered " + label);
         } else {
-            System.out.println("[hotkey] " + registration.specText()
-                    + " is owned by another app; using " + BACKUP_COMBO);
+            System.out.println("[hotkey] " + registration.configured().label()
+                    + " is owned by another app; using " + label);
         }
+    }
+
+    private static String describeCandidates() {
+        StringBuilder sb = new StringBuilder();
+        for (Spec spec : candidateSpecs) {
+            if (!sb.isEmpty()) {
+                sb.append(", ");
+            }
+            sb.append(spec.label());
+        }
+        return sb.toString();
     }
 
     private static void supervise() {
@@ -254,6 +349,16 @@ public final class HotkeyManager {
         }
     }
 
+    private static void shutdown(User32 user32) {
+        unregister(user32);
+        long window = lifecycleWindow;
+        lifecycleWindow = 0L;
+        LifecycleWindow.destroy(window);
+        activePrimary = null;
+        activeBackup = null;
+        pumpThreadId = 0;
+    }
+
     private static void unregister(User32 user32) {
         user32.UnregisterHotKey(null, PRIMARY_ID);
         user32.UnregisterHotKey(null, BACKUP_ID);
@@ -287,16 +392,27 @@ public final class HotkeyManager {
         }
     }
 
-    private record Registration(
-            boolean primaryOk,
-            boolean backupOk,
-            Spec primary,
-            Spec backup,
-            int primaryError,
-            String specText) {
+    /**
+     * One registration attempt. {@code primary} and {@code backup} are the combinations that
+     * actually registered (either may be {@code null}); {@code configured} is what the user
+     * asked for, so the UI can say when it had to fall back.
+     */
+    private record Registration(Spec primary, Spec backup, Spec configured, int error) {
+
+        boolean any() {
+            return primary != null || backup != null;
+        }
+
+        boolean configuredActive() {
+            return primary != null && sameBinding(primary, configured);
+        }
+
+        String label() {
+            return primary != null ? primary.label() : backup == null ? "" : backup.label();
+        }
     }
 
-    private record Spec(int mods, int vk) {
+    record Spec(int mods, int vk) {
 
         private static final int MOD_ALT = 0x0001;
         private static final int MOD_CONTROL = 0x0002;
@@ -321,7 +437,13 @@ public final class HotkeyManager {
         private static int virtualKey(String key) {
             if (key.length() == 1) {
                 char c = key.charAt(0);
-                return Character.isLetterOrDigit(c) ? Character.toUpperCase(c) : 0x20;
+                if (Character.isLetterOrDigit(c)) {
+                    return Character.toUpperCase(c);
+                }
+                if (c == '`') {
+                    return 0xC0;
+                }
+                return 0x20;
             }
             return switch (key) {
                 case "SPACE" -> 0x20;

@@ -38,6 +38,14 @@ public class WinFocusProbe {
     Press(0x20, false);  // VK_SPACE up
     Press(0x12, false);  // VK_LMENU up
   }
+  public static void Chord(byte[] mods, byte key) {
+    foreach (var m in mods) { Press(m, true); }
+    System.Threading.Thread.Sleep(40);
+    Press(key, true);
+    System.Threading.Thread.Sleep(40);
+    Press(key, false);
+    foreach (var m in mods) { Press(m, false); }
+  }
 }
 "@
 
@@ -61,6 +69,23 @@ switch ($Action) {
   "altspace" {
     "before: " + [WinFocusProbe]::Fg()
     [WinFocusProbe]::AltSpace()
+    Start-Sleep -Seconds 2
+    "after : " + [WinFocusProbe]::Fg()
+  }
+  "chord" {
+    $mods = @()
+    $key = 0x20
+    foreach ($part in $Text.ToUpperInvariant().Split('+')) {
+      switch ($part.Trim()) {
+        'CTRL' { $mods += [byte]0x11 }
+        'ALT' { $mods += [byte]0x12 }
+        'SHIFT' { $mods += [byte]0x10 }
+        'WIN' { $mods += [byte]0x5B }
+        'SPACE' { $key = [byte]0x20 }
+      }
+    }
+    "before: " + [WinFocusProbe]::Fg()
+    [WinFocusProbe]::Chord([byte[]]$mods, $key)
     Start-Sleep -Seconds 2
     "after : " + [WinFocusProbe]::Fg()
   }

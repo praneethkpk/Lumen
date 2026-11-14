@@ -17,7 +17,8 @@ measure, not a deadline.
 
 | Area | State |
 | --- | --- |
-| Global hotkey | `RegisterHotKey` on a dedicated message-pump thread; `Alt+Space` plus a permanently registered `Ctrl+Alt+Space` backup |
+| Global hotkey | `RegisterHotKey` on a dedicated message-pump thread; `Alt+Space` plus a fallback chain (`Ctrl+Alt+Space`, `Ctrl+Shift+Space`, ``Alt+` ``) |
+| Lifecycle | Hidden window receives power/session/display broadcasts and re-registers and re-positions |
 | Summon | Warm overlay shows in 30–88 ms, takes foreground, `Esc` dismisses |
 | Search | Apps + configured folders, fuzzy subsequence match, usage/recency boost |
 | Running windows | `EnumWindows` provider; Enter restores and focuses the existing window |
@@ -25,8 +26,8 @@ measure, not a deadline.
 | Providers | Calculator, index, running windows, web fallback behind one `Provider` interface |
 | Index | In-memory, pre-lowercased, lock-free atomic list swap, JSON snapshot |
 | Packaging | jpackage app image (`~163 MB`), per-user install, autostart shortcut |
-| Diagnostics | Tee'd log at `%LOCALAPPDATA%\\Lumen\lumen.log` |
-| Robustness | Single-instance lock + loopback handoff; tray fallback for open/reindex/quit |
+| Diagnostics | Tee'd log at `%LOCALAPPDATA%\\Lumen\lumen.log`, plus a `[self-test]` line per launch |
+| Robustness | Single-instance lock + loopback handoff across a 10-port range; tray fallback for open/reindex/restart/quit; uncaught exceptions logged without taking the tray down |
 
 The suite covers the expression parser, units, matcher, query parsing, provider routing,
 ranking, and the real Win32 icon and window bindings.
@@ -133,26 +134,32 @@ because of antivirus scanning and disk state; that variance is itself a bug to f
 **Why:** the only repeated complaint so far is "the hotkey didn't work." That is a
 reliability problem, not a feature gap, and it blocks everything else.
 
-**Progress:** 0.1 (watchdog re-registration plus clock-gap resume detection), 0.3 (tray
-status), 0.4 (native foreground polling hides the overlay 600 ms after it stops being the
-real foreground window, so it never sits on top of the app the user switched to), 0.5
-(0/60/150/300 ms summon retries, hiding if activation never succeeds) and 0.10 (focus-loss
-log names the foreground window) are implemented. Native `WM_POWERBROADCAST` /
-`WM_WTSSESSION_CHANGE` listeners and 0.6–0.9 remain.
+**Progress:** Phase 0 is implemented. 0.1 (watchdog re-registration plus clock-gap resume
+detection), 0.2 (a hidden window listening for `WM_POWERBROADCAST`, `WM_WTSSESSION_CHANGE` and
+`WM_DISPLAYCHANGE`, re-registering and re-positioning), 0.3 (tray status), 0.4 (native
+foreground polling hides the overlay 600 ms after it stops being the real foreground window),
+0.5 (0/60/150/300 ms summon retries), 0.6 (uncaught-exception handler plus a tray "Restart"
+item), 0.7 (single-instance listener walks a 10-port range and records the live port),
+0.8 (one-line `[self-test]` marker per launch), 0.9 (configured key, then
+`CTRL+ALT+SPACE`, `CTRL+SHIFT+SPACE`, ``ALT+` `` until one registers) and 0.10 (focus-loss log
+names the foreground window) are done.
 
 **Scope**
 
 1. **Hotkey supervisor.** A watchdog thread checks `HotkeyManager.isRegistered()` every
-   second and re-registers after sleep/resume, RDP reconnect, user switch, or a message-pump
-   failure. Re-register uses the same primary + backup pair.
+   2 seconds and re-registers after sleep/resume, RDP reconnect, user switch, or a message-pump
+   failure. Re-registration re-walks the whole fallback chain, so it never depends on which
+   combination happened to be available at start-up.
 2. **Lifecycle listeners.** Handle `WM_POWERBROADCAST` (resume), `WM_WTSSESSION_CHANGE`
    (lock/unlock, session switch), and `WM_DISPLAYCHANGE` (monitor/DPI change) on the pump
    thread; re-register and re-position after each.
 3. **Visible state.** Tray tooltip shows the active hotkey. If registration fails, show a
    balloon naming the fallback and add a "Hotkey status" item to the tray menu.
-4. **Fix auto-hide semantics.** Default `hideOnFocusLoss=false`. Hide on `Esc`, on click
-   outside, or on action. Keep a configurable grace period for users who want the old
-   behavior. A transient focus steal must never close the window.
+4. **Fix auto-hide semantics.** The overlay hides on `Esc`, on action, or once it has been
+   away from the *native* foreground for ~600 ms. A transient activation steal therefore
+   never closes it, and it never sits on top of the app you switched to. Set
+   `hideOnFocusLoss=false` to keep it open until `Esc`. JavaFX's own focus flag is never
+   trusted for this decision.
 5. **Retry the summon.** If `show()` fails to focus, retry at 0/60/150/300 ms before giving
    up; log the final `focused` state.
 6. **Crash containment.** Install a default uncaught-exception handler that logs the
@@ -163,9 +170,10 @@ log names the foreground window) are implemented. Native `WM_POWERBROADCAST` /
    either hand off or start cleanly.
 8. **Startup self-test.** On first run of a new build, verify: hotkey registered, tray added,
    index loaded, overlay can show. Write a one-line `[self-test] ok/fail` marker.
-9. **Hotkey conflict report.** On failure, enumerate fallbacks
-   (`CTRL+ALT+SPACE`, `CTRL+SHIFT+SPACE`, `ALT+\``) and register the first free one; tell the
-   user exactly which combination is live.
+9. **Hotkey conflict report.** On failure, walk the fallback chain
+   (`CTRL+ALT+SPACE`, `CTRL+SHIFT+SPACE`, ``ALT+` ``) and register the first two free
+   combinations; the tray tooltip and first-run balloon name the live combination and say
+   which requested one was taken.
 10. **Focus-loss telemetry.** Log every `[focus] lost` with the foreground window title, so
     the next "it didn't work" report is diagnosable in one glance.
 
@@ -662,17 +670,16 @@ These run alongside the phases, not as separate phases.
 
 ## 8. Immediate next five (this week)
 
-1. **Hotkey supervisor + lifecycle handling** (Phase 0.1–0.2). This is the only thing that
-   must be true before anything else is worth building.
-2. **Make the hotkey raise an already-visible window** (Phase 0.4) and base hiding on the
-   native foreground window rather than JavaFX's optimistic focus flag. An overlay that is
-   visible but not the real foreground must never block Alt+Tab or clicks.
-3. **Surface hotkey state** in the tray tooltip/balloon and log every transition
-   (Phase 0.3, 0.10). No more silent failures.
-4. **jlink + AppCDS build** (Phase 1.1–1.2). Cuts the install roughly in half and shortens
+1. **jlink + AppCDS build** (Phase 1.1–1.2). Cuts the install roughly in half and shortens
    cold start, with no behavior change.
-5. **Ranking eval harness** (Phase 2.1), then the remaining launcher depth: UWP/Store apps
-   and the actions menu (Phase 4.2, 4.4).
+2. **Ranking eval harness** (Phase 2.1). Turns "feels better" into a number and protects the
+   next ranking change.
+3. **UWP/Store apps and the actions menu** (Phase 4.2, 4.4). The remaining launcher depth that
+   people notice immediately.
+4. **Settings UI with live hotkey capture** (Phase 5), so the configured key and the fallback
+   chain can be changed without editing JSON.
+5. **Signed MSI + auto-update + CI** (Phase 10), required before handing the app to anyone
+   outside this machine.
 
 Do these in that order. Ship after each one; do not batch them into a big-bang release.
 

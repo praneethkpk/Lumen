@@ -69,7 +69,8 @@ public final class TrayManager {
         });
     }
 
-    public static void install(Runnable openAction, Runnable reindexAction, Runnable quitAction) {
+    public static void install(Runnable openAction, Runnable reindexAction,
+                               Runnable restartAction, Runnable quitAction) {
         if (!SystemTray.isSupported()) {
             System.err.println("[tray] system tray not supported");
             return;
@@ -87,6 +88,14 @@ public final class TrayManager {
                 MenuItem reindex = new MenuItem("Rebuild index");
                 reindex.addActionListener(e -> reindexAction.run());
 
+                MenuItem restart = new MenuItem("Restart Lumen");
+                restart.addActionListener(e -> {
+                    if (restartAction != null) {
+                        restartAction.run();
+                    }
+                });
+                restart.setEnabled(restartAction != null);
+
                 MenuItem quit = new MenuItem("Quit");
                 quit.addActionListener(e -> quitAction.run());
 
@@ -94,6 +103,7 @@ public final class TrayManager {
                 menu.addSeparator();
                 menu.add(open);
                 menu.add(reindex);
+                menu.add(restart);
                 menu.addSeparator();
                 menu.add(quit);
 
@@ -122,6 +132,11 @@ public final class TrayManager {
             trayIcon = null;
         }
         statusItem = null;
+    }
+
+    /** True once the icon is actually in the notification area. */
+    public static boolean isInstalled() {
+        return trayIcon != null;
     }
 
     private static Image createIcon(int size) {

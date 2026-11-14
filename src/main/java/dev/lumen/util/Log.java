@@ -12,6 +12,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.function.Consumer;
 
 /**
  * Tees {@code System.out}/{@code System.err} into
@@ -20,11 +21,17 @@ import java.time.Instant;
  * <p>A tray app has no console, so without this every failure is invisible: the hotkey
  * that did not register, the window that could not be shown, the index that threw. Existing
  * {@code System.out} calls therefore keep working and are persisted for free.
+ *
+ * <p>The default uncaught-exception handler is installed here too. A launcher must never lose
+ * its tray and hotkey because one callback threw; the stack trace goes to the log and a
+ * listener can surface it without letting the exception escape.
  */
 public final class Log {
 
     private static final long MAX_BYTES = 2L * 1024 * 1024;
     private static boolean installed;
+    private static volatile Consumer<Throwable> crashListener = error -> {
+    };
 
     private Log() {
     }
@@ -34,6 +41,7 @@ public final class Log {
             return;
         }
         installed = true;
+        installCrashHandler();
         try {
             Files.createDirectories(Config.dataDir());
             Path file = Config.dataDir().resolve("lumen.log");
@@ -54,6 +62,29 @@ public final class Log {
 
     public static Path file() {
         return Config.dataDir().resolve("lumen.log");
+    }
+
+    /** Called on every uncaught exception, from any thread, after the trace is written. */
+    public static void setCrashListener(Consumer<Throwable> listener) {
+        crashListener = listener == null ? error -> {
+        } : listener;
+    }
+
+    private static void installCrashHandler() {
+        Thread.setDefaultUncaughtExceptionHandler((thread, error) -> {
+            try {
+                System.err.println("[crash] uncaught on " + thread.getName()
+                        + ": " + error);
+                error.printStackTrace(System.err);
+            } catch (Throwable ignored) {
+                // The logging tee itself may have failed; nothing else to do.
+            }
+            try {
+                crashListener.accept(error);
+            } catch (Throwable ignored) {
+                // Never let the reporter escalate a crash.
+            }
+        });
     }
 
     private static void rotate(Path file) {

@@ -14,12 +14,20 @@ import com.sun.jna.win32.W32APIOptions;
  * Win32 calls that JNA's platform library does not expose.
  *
  * <p>Kept in one place so the ad-hoc bindings are easy to audit: shell icon extraction
- * ({@code SHGetFileInfo}), icon painting ({@code DrawIconEx}) and the minimized-window check
- * ({@code IsIconic}).
+ * ({@code SHGetFileInfo}), icon painting ({@code DrawIconEx}), the minimized-window check
+ * ({@code IsIconic}) and session notifications ({@code WTSRegisterSessionNotification}).
  */
 public final class Win32Ext {
 
     private Win32Ext() {
+    }
+
+    interface Wtsapi32 extends StdCallLibrary {
+        Wtsapi32 INSTANCE = Native.load("wtsapi32", Wtsapi32.class, W32APIOptions.DEFAULT_OPTIONS);
+
+        boolean WTSRegisterSessionNotification(HWND window, int flags);
+
+        boolean WTSUnRegisterSessionNotification(HWND window);
     }
 
     interface User32Ex extends StdCallLibrary {

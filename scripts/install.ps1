@@ -62,5 +62,5 @@ if (-not $NoAutostart) {
 Write-Host "Log:        $log"
 Write-Host "Running:    $([bool](Get-Process Lumen -ErrorAction SilentlyContinue))"
 Write-Host ""
-Write-Host "Press Alt+Space (backup: Ctrl+Alt+Space). Remove autostart with:"
+Write-Host "Press Alt+Space (fallbacks: Ctrl+Alt+Space, Ctrl+Shift+Space, Alt+backtick). Remove autostart with:"
 Write-Host "  Remove-Item '$([Environment]::GetFolderPath('Startup'))\Lumen.lnk'"
