@@ -477,6 +477,14 @@ public final class Overlay {
         }
 
         StringBuilder status = new StringBuilder();
+        String query = field.getText();
+        if (query != null && !query.isBlank()) {
+            status.append(hits.size()).append(" result");
+            if (hits.size() != 1) {
+                status.append('s');
+            }
+            status.append(" · ");
+        }
         status.append(String.format("%,d indexed", indexSize.getAsInt()));
         if (truncated.getAsBoolean()) {
             status.append(" · truncated");
