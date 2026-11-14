@@ -36,6 +36,14 @@ class SearchQueryTest {
     }
 
     @Test
+    void parsesWindowKind() {
+        assertEquals(java.util.Set.of(ItemKind.WINDOW), SearchQuery.parse("kind:window").kinds());
+        assertEquals(java.util.Set.of(ItemKind.WINDOW), SearchQuery.parse("kind:win").kinds());
+        assertEquals(java.util.Set.of(ItemKind.WINDOW, ItemKind.FILE),
+                SearchQuery.parse("kind:windows,file").kinds());
+    }
+
+    @Test
     void dropsTheRoutedAlias() {
         SearchQuery query = SearchQuery.parse("apps chrome").withoutFirstToken();
 

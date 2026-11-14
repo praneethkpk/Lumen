@@ -147,6 +147,19 @@
     -fx-text-fill: #7fe3c8;
 }
 
+.badge-window {
+    -fx-background-color: rgba(110, 168, 254, 0.12);
+}
+
+.badge-window .badge-glyph {
+    -fx-text-fill: #9fc6ff;
+}
+
+/* A real shell icon carries its own colour; the plate only adds noise behind it. */
+.badge-icon {
+    -fx-background-color: transparent;
+}
+
 /* ---- footer ---- */
 
 .footer {

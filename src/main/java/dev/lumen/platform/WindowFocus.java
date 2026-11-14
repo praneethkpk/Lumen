@@ -5,6 +5,7 @@ import com.sun.jna.platform.win32.Kernel32;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
 import com.sun.jna.platform.win32.WinDef.HWND;
+import com.sun.jna.platform.win32.WinUser;
 
 /**
  * Forces the overlay to the foreground.
@@ -23,12 +24,38 @@ public final class WindowFocus {
     }
 
     public static boolean claim() {
-        User32 user32 = User32.INSTANCE;
-        HWND target = user32.FindWindow(null, WINDOW_TITLE);
-        if (target == null || Pointer.nativeValue(target.getPointer()) == 0L) {
+        HWND target = overlayHandle();
+        return target != null && raise(target);
+    }
+
+    /**
+     * Brings a specific window to the foreground, restoring it first if it is minimized.
+     *
+     * <p>Used when a search result is an already-running window: switching to it is what the
+     * user meant, and launching a second copy of the app would be wrong.
+     */
+    public static boolean claimHandle(long handle) {
+        if (handle == 0L) {
             return false;
         }
+        User32 user32 = User32.INSTANCE;
+        HWND target = new HWND(Pointer.createConstant(handle));
+        if (!user32.IsWindow(target)) {
+            return false;
+        }
+        if (Win32Ext.User32Ex.INSTANCE.IsIconic(target)) {
+            user32.ShowWindow(target, WinUser.SW_RESTORE);
+        }
+        return raise(target);
+    }
 
+    /**
+     * The attach/SetForegroundWindow dance. Windows refuses foreground rights to a process
+     * that does not own the current foreground window; briefly sharing the input queue with
+     * that thread lifts the restriction.
+     */
+    private static boolean raise(HWND target) {
+        User32 user32 = User32.INSTANCE;
         HWND foreground = user32.GetForegroundWindow();
         int foregroundThread = foreground == null ? 0 : user32.GetWindowThreadProcessId(foreground, null);
         int ownThread = Kernel32.INSTANCE.GetCurrentThreadId();
@@ -51,6 +78,11 @@ public final class WindowFocus {
                         new WinDef.DWORD(ownThread), new WinDef.DWORD(foregroundThread), false);
             }
         }
+    }
+
+    private static HWND overlayHandle() {
+        HWND target = User32.INSTANCE.FindWindow(null, WINDOW_TITLE);
+        return target == null || Pointer.nativeValue(target.getPointer()) == 0L ? null : target;
     }
 
     /**

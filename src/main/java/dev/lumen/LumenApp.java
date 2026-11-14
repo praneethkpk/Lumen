@@ -13,6 +13,7 @@ import dev.lumen.providers.CalculatorProvider;
 import dev.lumen.providers.IndexProvider;
 import dev.lumen.providers.Provider;
 import dev.lumen.providers.WebSearchProvider;
+import dev.lumen.providers.WindowProvider;
 import dev.lumen.ui.Overlay;
 import dev.lumen.util.Log;
 import javafx.application.Application;
@@ -55,6 +56,7 @@ public final class LumenApp extends Application {
         List<Provider> providers = List.of(
                 new CalculatorProvider(),
                 new IndexProvider(index, usage, config),
+                new WindowProvider(),
                 new WebSearchProvider(config)
         );
 

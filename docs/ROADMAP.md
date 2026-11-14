@@ -20,13 +20,16 @@ measure, not a deadline.
 | Global hotkey | `RegisterHotKey` on a dedicated message-pump thread; `Alt+Space` plus a permanently registered `Ctrl+Alt+Space` backup |
 | Summon | Warm overlay shows in 30–88 ms, takes foreground, `Esc` dismisses |
 | Search | Apps + configured folders, fuzzy subsequence match, usage/recency boost |
-| Providers | Calculator, index, web fallback behind one `Provider` interface |
+| Running windows | `EnumWindows` provider; Enter restores and focuses the existing window |
+| Icons | Real shell icons via `SHGetFileInfo` + GDI, extracted off the UI thread and cached |
+| Providers | Calculator, index, running windows, web fallback behind one `Provider` interface |
 | Index | In-memory, pre-lowercased, lock-free atomic list swap, JSON snapshot |
 | Packaging | jpackage app image (`~163 MB`), per-user install, autostart shortcut |
 | Diagnostics | Tee'd log at `%LOCALAPPDATA%\\Lumen\lumen.log` |
 | Robustness | Single-instance lock + loopback handoff; tray fallback for open/reindex/quit |
 
-15 unit tests cover the expression parser, units, and the matcher.
+The suite covers the expression parser, units, matcher, query parsing, provider routing,
+ranking, and the real Win32 icon and window bindings.
 
 ### 1.2 Known weaknesses
 
@@ -41,8 +44,8 @@ These are the honest gaps, ordered by how much they hurt.
 | Recall | Misses files outside the three default roots | Directory walk only; no full-disk source |
 | Ranking | Long paths can outrank the app you meant; acronyms not matched | Subsequence scoring has no path-depth penalty or acronym pass |
 | Scale | 20 ms p95 at 120k, degrades linearly | No candidate pruning (n-gram/inverted prefilter) |
-| Apps | UWP/Store apps missing, generic kind badges | Start Menu walk only; no shell icon extraction, no `AppsFolder` enumeration |
-| Actions | Enter or "show in Explorer" only | No admin launch, running-window switch, copy path, arguments |
+| Apps | UWP/Store apps missing | Start Menu walk only; no `AppsFolder` enumeration |
+| Actions | Enter or "show in Explorer" only | No admin launch, copy path, arguments, actions menu |
 | Configuration | Hand-edited JSON, restart required | No settings UI, no live hotkey re-registration |
 | Content | Names only | No PDF/Office/text extraction, no content index |
 | Clipboard | None | Not implemented |
@@ -300,19 +303,28 @@ dependency, licensing) / high (elevated helper).
 
 **Why:** this is what makes it feel like a real launcher rather than a file finder.
 
+**Progress:** 4.1 and 4.3 are implemented. Icons are extracted with `SHGetFileInfo` and
+rendered through a GDI DIB section on a background thread, cached in memory per executable or
+file path; a failed extraction falls back to the kind badge. Running windows come from
+`EnumWindows` (visible, titled, non-tool, non-cloaked, not our own process) and Enter restores
+and focuses the window. 4.2 (UWP/Store apps) and 4.4–4.6 remain, as does the on-disk icon
+cache.
+
 **Scope**
 
-1. **Shell icons.** Extract per-item icons with `SHGetFileInfo` + `SHGetImageList`
-   (`SHIL_JUMBO`), convert to JavaFX images via `PixelBuffer`, cache as PNG keyed by
-   path + mtime. Fall back to a kind badge when extraction fails. Expect the biggest visual
-   jump of any item in this plan.
+1. **Shell icons.** Extract per-item icons with `SHGetFileInfo`, draw the `HICON` into a
+   32-bit DIB section and copy the pixels into a JavaFX image. Extraction runs off the
+   JavaFX thread and is cached by source path, so typing never waits for it. Fall back to a
+   kind badge when extraction fails. *(Implemented; a PNG disk cache keyed by path + mtime
+   is still open.)*
 2. **UWP / Store apps.** Enumerate `shell:AppsFolder` through the Shell COM API, capture
    `AppUserModelID` + display name, and launch via
    `explorer.exe shell:AppsFolder\<AUMID>`. This adds Settings, Calculator, Photos, Store
    apps, etc.
 3. **Running windows.** `EnumWindows` + process name/title matching; Enter switches to the
-   window (`SetForegroundWindow`, with the existing attach-input workaround) instead of
-   launching a second instance. Mark running apps with a dot.
+   window (`SetForegroundWindow`, with the existing attach-input workaround, plus
+   `SW_RESTORE` for minimized windows) instead of launching a second instance.
+   *(Implemented.)*
 4. **Actions menu (`Ctrl+K` or `→`).** Open, open as administrator (`runas`), open
    containing folder, copy path, copy name, pin to top, run with arguments, uninstall
    (where a shortcut provides it).
@@ -323,8 +335,8 @@ dependency, licensing) / high (elevated helper).
 
 **Acceptance criteria**
 
-- Every Start Menu app shows its real icon within 50 ms of first paint; icons survive
-  restart via cache.
+- Every Start Menu app shows its real icon shortly after first paint, without delaying typed
+  results; repeat views are served from the in-memory cache.
 - Store apps are searchable and launch correctly.
 - Typing an app that is already running and pressing Enter focuses the existing window.
 - "Run as administrator" triggers UAC and launches elevated.
@@ -659,8 +671,8 @@ These run alongside the phases, not as separate phases.
    (Phase 0.3, 0.10). No more silent failures.
 4. **jlink + AppCDS build** (Phase 1.1–1.2). Cuts the install roughly in half and shortens
    cold start, with no behavior change.
-5. **Ranking eval harness + icon extraction** (Phase 2.1, 4.1). One keeps quality honest,
-   the other is the single biggest perceived upgrade.
+5. **Ranking eval harness** (Phase 2.1), then the remaining launcher depth: UWP/Store apps
+   and the actions menu (Phase 4.2, 4.4).
 
 Do these in that order. Ship after each one; do not batch them into a big-bang release.
 
@@ -674,7 +686,7 @@ Do these in that order. Ship after each one; do not batch them into a big-bang r
 | Focus/activation refused by Windows | Medium | High | AttachThreadInput + retries; never auto-hide on transient focus loss |
 | Everything SDK licensing/distribution ambiguity | Medium | Medium | Feature-detect, do not bundle, document; Windows Search as fallback |
 | USN/MFT helper needs elevation and breaks | Medium | Medium | Optional, signed, piped; never required for core |
-| Icon extraction leaks memory / slows startup | Medium | Medium | Lazy extraction, bounded LRU + disk cache, measure |
+| Icon extraction leaks memory / slows startup | Medium | Medium | Lazy, off-thread extraction with a bounded cache; a disk cache is the next step if memory or startup grows |
 | Content index grows unbounded | High | Medium | Size caps, exclusions, budgeted crawler, one-click delete |
 | Clipboard stores secrets | Medium | High | Skip sensitive formats, DPAPI, pause, clear |
 | Ranking changes regress quality | High | Medium | Labeled eval set + CI gate |

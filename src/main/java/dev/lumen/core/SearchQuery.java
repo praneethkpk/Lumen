@@ -96,6 +96,7 @@ public record SearchQuery(
             case "app", "apps", "application", "applications" -> ItemKind.APP;
             case "file", "files", "document", "documents" -> ItemKind.FILE;
             case "folder", "folders", "dir", "dirs", "directory", "directories" -> ItemKind.FOLDER;
+            case "window", "windows", "win" -> ItemKind.WINDOW;
             default -> null;
         };
     }

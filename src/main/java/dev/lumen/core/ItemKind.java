@@ -9,5 +9,7 @@ public enum ItemKind {
     /** An evaluated expression; Enter copies the value. */
     CALC,
     /** A web search; Enter opens the browser. */
-    WEB
+    WEB,
+    /** An already-open top-level window; Enter switches to it instead of launching. */
+    WINDOW
 }

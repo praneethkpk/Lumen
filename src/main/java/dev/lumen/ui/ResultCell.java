@@ -2,22 +2,37 @@ package dev.lumen.ui;
 
 import dev.lumen.core.Hit;
 import dev.lumen.core.IndexItem;
+import dev.lumen.platform.ShellIcons;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 
-/** One result row: kind badge, title, subtitle, and the Enter action. */
+import java.util.Locale;
+
+/**
+ * One result row: icon or kind badge, title, subtitle, and the Enter action.
+ *
+ * <p>Real shell icons are extracted in the background ({@link ShellIcons}), so a row paints
+ * its badge immediately and upgrades to the icon when it arrives. The cell is reused by
+ * {@code ListView}, so a late callback checks that the row still shows the same result before
+ * touching it.
+ */
 public final class ResultCell extends ListCell<Hit> {
+
+    private static final double ICON_SIZE = 22;
 
     private final HBox root = new HBox(12);
     private final StackPane badge = new StackPane();
     private final Label badgeGlyph = new Label();
+    private final ImageView icon = new ImageView();
     private final Label title = new Label();
     private final Label subtitle = new Label();
     private final Label action = new Label();
@@ -31,7 +46,12 @@ public final class ResultCell extends ListCell<Hit> {
         badge.setPrefSize(30, 30);
         badge.setMaxSize(30, 30);
         badgeGlyph.getStyleClass().add("badge-glyph");
-        badge.getChildren().add(badgeGlyph);
+        icon.setFitWidth(ICON_SIZE);
+        icon.setFitHeight(ICON_SIZE);
+        icon.setPreserveRatio(true);
+        icon.setSmooth(true);
+        icon.setVisible(false);
+        badge.getChildren().addAll(icon, badgeGlyph);
 
         title.getStyleClass().add("item-title");
         subtitle.getStyleClass().add("item-subtitle");
@@ -66,12 +86,42 @@ public final class ResultCell extends ListCell<Hit> {
         }
 
         IndexItem item = hit.item();
-        badgeGlyph.setText(glyph(item));
-        badge.getStyleClass().setAll("badge", "badge-" + item.kind().name().toLowerCase());
         title.setText(item.title());
         subtitle.setText(item.subtitle());
         action.setText(actionLabel(item));
+
+        Image ready = ShellIcons.cached(item);
+        if (ready != null) {
+            showIcon(ready);
+        } else {
+            showBadge(item);
+            ShellIcons.request(item, image -> {
+                // A recycled cell may already be showing a different result.
+                if (getItem() == hit) {
+                    showIcon(image);
+                }
+            });
+        }
         setGraphic(root);
+    }
+
+    private void showIcon(Image image) {
+        if (image == null) {
+            return;
+        }
+        icon.setImage(image);
+        icon.setVisible(true);
+        badgeGlyph.setVisible(false);
+        badge.getStyleClass().setAll("badge", "badge-icon");
+    }
+
+    private void showBadge(IndexItem item) {
+        icon.setImage(null);
+        icon.setVisible(false);
+        badgeGlyph.setVisible(true);
+        badgeGlyph.setText(glyph(item));
+        badge.getStyleClass().setAll("badge",
+                "badge-" + item.kind().name().toLowerCase(Locale.ROOT));
     }
 
     private static String glyph(IndexItem item) {
@@ -81,6 +131,7 @@ public final class ResultCell extends ListCell<Hit> {
             case FOLDER -> "▸";
             case CALC -> "=";
             case WEB -> "↗";
+            case WINDOW -> "▣";
         };
     }
 
@@ -89,6 +140,7 @@ public final class ResultCell extends ListCell<Hit> {
             case APP, FILE, FOLDER -> "open";
             case CALC -> "copy";
             case WEB -> "search";
+            case WINDOW -> "switch";
         };
     }
 }

@@ -102,11 +102,12 @@ the usage lookup; that is what keeps a query matching the whole corpus fast.
 | Syntax | Meaning |
 | --- | --- |
 | `report ext:pdf` | tokens plus a file-extension filter (`.pdf`) |
-| `kind:folder` / `kind:app` / `kind:file` | restrict by item kind |
+| `kind:folder` / `kind:app` / `kind:file` / `kind:window` | restrict by item kind |
 | `in:downloads report` | path must contain `downloads` |
 | `invoice -draft` | exclude anything containing `draft` |
 | `apps chrome` | leading alias routes to the index, app results only |
 | `files report` | files and folders only |
+| `win chrome` / `windows chrome` | route to open windows |
 | `web cats` / `g cats` | route to the web fallback |
 | `calc 2+2` / `= 2+2` | route to the calculator |
 
@@ -133,8 +134,8 @@ public final class ClipboardProvider implements Provider {
 ```
 
 …and registering it in `LumenApp`. Ranking, keyboard handling and the UI need no changes;
-`ItemKind` decides the Enter action (`CALC` copies, `WEB` opens, the rest launch through the
-shell).
+`ItemKind` decides the Enter action (`CALC` copies, `WEB` opens, `WINDOW` switches to the
+window handle stored in `path`, the rest launch through the shell).
 
 ## Windows integration
 
@@ -148,6 +149,16 @@ shell).
   `RegisterHotKey` binds to the calling thread.
 - **Launching** — `Shell32.ShellExecute("open", …)` so shortcuts, documents, folders and URLs
   all resolve exactly as in Explorer. `explorer /select,` handles "show in folder".
+- **Running windows** — `EnumWindows` lists visible, titled, non-tool windows that are not
+  DWM-cloaked and not owned by Lumen. The process executable is resolved once per PID through
+  `ProcessHandle`, and the list is cached for 700 ms so keystrokes do not pay for a full
+  enumeration. Enter calls `SetForegroundWindow` with the same attach-input workaround used
+  for the overlay, after `SW_RESTORE` if the window is minimized.
+- **Shell icons** — `SHGetFileInfo` returns an `HICON`; it is painted into a 32-bit top-down
+  DIB section with `DrawIconEx` and copied straight into a JavaFX `WritableImage`. Extraction
+  runs on a single background thread so `SHGetFileInfo` can never stall typing, and the
+  result is cached by executable or file path. Icons without an alpha channel are recovered
+  through a sentinel-colour second pass.
 - **Window** — `StageStyle.TRANSPARENT`, always-on-top, positioned on the display under the
   cursor at 18% of its height. While it is visible the native foreground window is polled
   every 200 ms; after 600 ms away from the foreground it hides. This deliberately does not

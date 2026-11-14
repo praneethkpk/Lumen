@@ -78,6 +78,7 @@ public final class Overlay {
     private final TextField field = new TextField();
     private final ListView<Hit> list = new ListView<>();
     private final Label footerRight = new Label();
+    private StackPane root;
     private final Timeline foregroundPoll =
             new Timeline(new KeyFrame(Duration.millis(200), e -> checkForeground()));
     private final boolean hideOnFocusLoss;
@@ -98,8 +99,9 @@ public final class Overlay {
         stage.setResizable(false);
         stage.setTitle("Lumen");
 
-        StackPane root = buildRoot();
-        Scene scene = new Scene(root, WIDTH + 52, 160, Color.TRANSPARENT);
+        StackPane built = buildRoot();
+        root = built;
+        Scene scene = new Scene(built, WIDTH + 52, 160, Color.TRANSPARENT);
         scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
 
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
@@ -196,13 +198,13 @@ public final class Overlay {
 
         shell.getChildren().addAll(searchRow, divider, list, footer);
 
-        StackPane root = new StackPane(shell);
-        root.setPadding(new Insets(26));
-        root.setAlignment(Pos.TOP_CENTER);
+        StackPane container = new StackPane(shell);
+        container.setPadding(new Insets(26));
+        container.setAlignment(Pos.TOP_CENTER);
 
         field.addEventFilter(KeyEvent.KEY_PRESSED, this::onKeyPressed);
 
-        return root;
+        return container;
     }
 
     private HBox buildFooter() {
@@ -302,6 +304,7 @@ public final class Overlay {
         switch (item.kind()) {
             case CALC -> copyToClipboard(item.path());
             case WEB -> ShellLauncher.open(item.path());
+            case WINDOW -> switchToWindow(item.path());
             case APP, FILE, FOLDER -> {
                 if (reveal) {
                     ShellLauncher.reveal(item.path());
@@ -314,6 +317,22 @@ public final class Overlay {
                 }
             }
         }
+    }
+
+    /**
+     * Switching is deferred for the same reason launching is: the overlay must be gone and
+     * must no longer hold the foreground before Windows will hand it to the target window.
+     */
+    private static void switchToWindow(String handle) {
+        long value;
+        try {
+            value = Long.parseLong(handle);
+        } catch (NumberFormatException e) {
+            return;
+        }
+        PauseTransition delay = new PauseTransition(Duration.millis(60));
+        delay.setOnFinished(e -> WindowFocus.claimHandle(value));
+        delay.play();
     }
 
     private static void copyToClipboard(String text) {
@@ -351,8 +370,15 @@ public final class Overlay {
         list.setPrefHeight(height);
         list.setMaxHeight(height);
 
+        // A non-resizable transparent stage keeps the size its scene was constructed with
+        // when sizeToScene() runs, so the height is applied from the live content instead.
+        // Without this the window stays one row tall and later results scroll out of sight.
         stage.sizeToScene();
-        centerHorizontally(activeScreen().getVisualBounds());
+        stage.setHeight(root.prefHeight(stage.getWidth()));
+
+        Rectangle2D bounds = activeScreen().getVisualBounds();
+        centerHorizontally(bounds);
+        positionVertically(bounds);
     }
 
     public void show() {
@@ -375,8 +401,9 @@ public final class Overlay {
         stage.show();
         stage.toFront();
         stage.requestFocus();
-        centerHorizontally(activeScreen().getVisualBounds());
-        positionVertically(activeScreen().getVisualBounds());
+        // The stage now has a real width, so this sizes the overlay to its content; before
+        // show() the preferred height is computed against a not-yet-known width.
+        resize();
         field.requestFocus();
         takeForeground();
 
@@ -476,7 +503,10 @@ public final class Overlay {
     }
 
     private void positionVertically(Rectangle2D bounds) {
-        stage.setY(bounds.getMinY() + bounds.getHeight() * 0.18);
+        double preferred = bounds.getMinY() + bounds.getHeight() * 0.18;
+        // Keep the whole panel on screen when a long result list makes it tall.
+        double highest = bounds.getMaxY() - stage.getHeight();
+        stage.setY(Math.max(bounds.getMinY(), Math.min(preferred, highest)));
     }
 
     private static Screen activeScreen() {

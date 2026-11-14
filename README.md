@@ -82,6 +82,10 @@ hotkey instead.
   Start Menus.
 - **Files and folders** — everything under the configured roots, skipping hidden items,
   `node_modules`, `.git`, `target`, `AppData`, and similar noise.
+- **Running windows** — windows you already have open are searchable by title; `Enter`
+  switches to that window instead of launching a second copy.
+- **Real shell icons** — Explorer's own icon for every app, file and folder, with a kind
+  badge as the fallback.
 - **Ranking** — name matches outrank path matches; frequency and recency boost results you
   already use; ties break deterministically.
 
@@ -108,11 +112,13 @@ never compete with the text match.
 | `report type:pdf` | same thing; `type:` is an alias for `ext:` |
 | `kind:folder projects` | only folders |
 | `kind:file,app budget` | only files and apps |
+| `kind:window report` | only open windows |
 | `in:downloads setup` | only paths containing `downloads` |
 | `invoice -draft` | exclude anything containing `draft` |
 | `apps chrome` | app results only |
 | `files report` | files and folders only |
 | `folders projects` | folders only |
+| `win report` / `windows chrome` | open windows only |
 | `web cats` / `g cats` | go straight to a web search |
 | `calc 2+2` / `= 2+2` | go straight to the calculator |
 
@@ -154,6 +160,7 @@ flowchart LR
     Engine --> Providers["Provider registry"]
     Providers --> Apps["Application provider"]
     Providers --> Files["File provider"]
+    Providers --> Windows["Running windows<br/>EnumWindows"]
     Providers --> Calc["Calculator provider"]
     Providers --> Units["Unit conversion provider"]
     Providers --> Web["Web search provider"]
@@ -162,6 +169,7 @@ flowchart LR
     Indexer --> Store["IndexStore<br/>atomic snapshot"]
     Store --> Engine
     Overlay --> Usage["UsageStore<br/>frequency · recency"]
+    Overlay --> Icons["ShellIcons<br/>SHGetFileInfo · cached"]
 ```
 
 Search runs on the JavaFX thread on purpose: at these latencies, dispatching to a worker and
@@ -226,7 +234,7 @@ src/main/java/dev/lumen/
   core/FuzzyMatcher.java   tiered scoring
   core/UsageStore.java     frequency/recency boost
   providers/               one class per result source
-  platform/                Win32: hotkey, ShellExecute, tray
+  platform/                Win32: hotkey, ShellExecute, tray, shell icons, open windows
   calc/                    expression parser + unit tables
 ```
 
@@ -255,6 +263,8 @@ Shipped:
 - [x] Native foreground tracking so the overlay never blocks Alt+Tab or clicks
 - [x] Calculator + unit conversion
 - [x] Web search fallback
+- [x] Real shell icons for apps, files and folders
+- [x] Running-window switching by title
 - [x] Provider-based extensibility
 - [x] Single instance, tray fallback, file logging
 
@@ -264,7 +274,7 @@ criteria and effort estimates:
 - [ ] Ranking evaluation dataset instead of tuning by intuition (P1)
 - [ ] Full-disk search via the Everything SDK, then Windows Search (P1)
 - [ ] jlink runtime + AppCDS: smaller install, faster cold start (P1)
-- [ ] Real shell icons, UWP/Store apps, running-window switching (P1)
+- [ ] UWP/Store apps, actions menu, launch feedback (P1)
 - [ ] Settings UI with live hotkey capture (P1)
 - [ ] Complete the Lumen visual identity in JavaFX (P1)
 - [ ] Clipboard history, content search, system commands (P2)
