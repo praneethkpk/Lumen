@@ -196,8 +196,8 @@ scripts\build-installer.ps1
 scripts\install.ps1
 ```
 
-The first command produces a self-contained app image in `dist\Lumen\` with a bundled runtime
-(~106 MB, no Java required on the target machine). The second copies it to
+The first command produces a self-contained app image in `dist\Lumen\` with a jlink-trimmed runtime
+and an AppCDS archive (~105 MB installed, no Java required on the target machine). The second copies it to
 `%LOCALAPPDATA%\Programs\Lumen` and, unless `-NoAutostart` is passed, adds a `Lumen.lnk`
 shortcut to the Startup folder so it launches at login. It then starts the app.
 
@@ -225,6 +225,9 @@ Treat these as orders of magnitude for this design, not universal guarantees:
 | Keystroke → ranked results (120k items, typical query) | 2–7 ms p50 |
 | Keystroke → ranked results (120k items, filter or broad match) | 7–11 ms p50, up to 18 ms p95 |
 | Hotkey → window visible (warm) | 45–88 ms |
+| Cold start → hotkey live (jlink + CDS) | 0.99–1.07 s |
+| Working set | ~343 MB (launcher + JVM) |
+| Installed size | ~105 MB |
 
 Run the benchmark yourself:
 
@@ -287,7 +290,7 @@ criteria and effort estimates:
 
 - [ ] Ranking evaluation dataset instead of tuning by intuition (P1)
 - [ ] Full-disk search via the Everything SDK, then Windows Search (P1)
-- [ ] jlink runtime + AppCDS: smaller install, faster cold start (P1)
+- [x] jlink runtime + AppCDS: smaller install, faster cold start (P1)
 - [ ] UWP/Store apps, actions menu, launch feedback (P1)
 - [ ] Settings UI with live hotkey capture (P1)
 - [ ] Complete the Lumen visual identity in JavaFX (P1)

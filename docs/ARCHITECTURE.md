@@ -65,6 +65,20 @@ loaded synchronously — ~60 ms for 3.4k items — so the first summon already h
 the background rebuild runs. The rebuild then calls `overlay.refreshIfVisible()`, which
 re-ranks the current query in place without losing the selection.
 
+## Packaging
+
+`scripts\build-installer.ps1` produces the app image:
+1. **jlink** — builds a trimmed runtime (~78 MB) from a module graph containing
+   `java.base`, `java.desktop`, `java.logging`, `java.prefs`, `jdk.unsupported` and the
+   JavaFX modules (controls, graphics, base). JavaFX jmods are downloaded from Gluon's CDN on
+   first build and cached in `.cache/`.
+2. **CDS** — `jlink --generate-cds-archive` produces a class-data archive that the JVM loads
+   instead of re-reading the module image. The archive is copied into `dist/Lumen/app/` as
+   `lumen.jsa` and referenced from `Lumen.cfg` via `-XX:SharedArchiveFile=$APPDIR/lumen.jsa`.
+3. **jpackage** — wraps the runtime + app jars into `dist\Lumen\Lumen.exe`.
+4. **Install** — `scripts\install.ps1` copies to `%LOCALAPPDATA%\Programs\Lumen`, adds an
+   autostart shortcut, and launches the app.
+
 Full-disk instant search (Everything-style MFT/USN enumeration) is deliberately out of scope
 for v1; it needs elevated access and a different data structure. The `Provider` boundary is
 where it would slot in.

@@ -25,7 +25,7 @@ measure, not a deadline.
 | Icons | Real shell icons via `SHGetFileInfo` + GDI, extracted off the UI thread and cached |
 | Providers | Calculator, index, running windows, web fallback behind one `Provider` interface |
 | Index | In-memory, pre-lowercased, lock-free atomic list swap, JSON snapshot |
-| Packaging | jpackage app image (`~163 MB`), per-user install, autostart shortcut |
+| Packaging | jpackage app image (`~105 MB`), jlink runtime, CDS archive, per-user install, autostart shortcut |
 | Diagnostics | Tee'd log at `%LOCALAPPDATA%\\Lumen\lumen.log`, plus a `[self-test]` line per launch |
 | Robustness | Single-instance lock + loopback handoff across a 10-port range; tray fallback for open/reindex/restart/quit; uncaught exceptions logged without taking the tray down |
 
@@ -40,8 +40,8 @@ These are the honest gaps, ordered by how much they hurt.
 | --- | --- | --- |
 | Hotkey trust | "I pressed it and nothing happened" | No supervisor: if the pump thread dies or registration is lost after sleep/RDP, nothing re-registers it; failures are silent unless the log is read |
 | Focus semantics | Window disappears while typing / first press looks dead | Auto-hide on focus loss is too aggressive and the window can hide while another app steals focus |
-| Startup | 1.2–5 s until the hotkey is live | JVM + JavaFX + AWT tray cost; antenna/AV can double it |
-| Footprint | ~343 MB working set, 163 MB installed | Full JDK runtime bundled; no CDS; AWT and JavaFX toolkits both loaded |
+| Startup | 0.99–1.07 s until the hotkey is live | JVM + JavaFX + AWT tray cost; antenna/AV can still add variance |
+| Footprint | ~343 MB working set, 105 MB installed | Trimmed jlink runtime; CDS archive included; AWT and JavaFX toolkits both loaded |
 | Recall | Misses files outside the three default roots | Directory walk only; no full-disk source |
 | Ranking | Long paths can outrank the app you meant; acronyms not matched | Subsequence scoring has no path-depth penalty or acronym pass |
 | Scale | 20 ms p95 at 120k, degrades linearly | No candidate pruning (n-gram/inverted prefilter) |
@@ -63,12 +63,13 @@ Development machine, 3.4k indexed items, warm process:
 | Same, 120k-item synthetic index | 5.9 ms p50 / 20 ms p95 |
 | Snapshot load | 62–118 ms |
 | Background full reindex | 0.6–1.7 s |
-| Cold start → hotkey live | 1.2–5.0 s |
+| Cold start → hotkey live | 0.99–1.07 s (jlink + CDS) |
 | Working set | ~343 MB (2 processes: launcher + JVM) |
-| Installed size | ~163 MB |
+| Installed size | ~105 MB |
 
-**Important:** these numbers were taken with a warm file cache. The cold-start range is wide
-because of antivirus scanning and disk state; that variance is itself a bug to fix.
+**Important:** these numbers are from the jlink+CDS build on the development machine (warm  
+file cache). The 0.99–1.07 s range is with a trimmed runtime; a FullRuntime build would be  
+larger and slower.
 
 ---
 
@@ -193,16 +194,23 @@ names the foreground window) are done.
 
 ### Phase 1 — Startup and footprint (P0)
 
-**Why:** the app should be invisible until summoned. Today cold start can take 5 s and the
-install is 163 MB, largely a full JDK.
+**Why:** the app should be invisible until summoned. Today cold start can take ~1 s and the
+install is ~105 MB — both already improved from the original 163 MB + 5 s.
+
+**Progress:** 1.1 (jlink runtime, compressed, stripped) and 1.2 (AppCDS archive generated at
+build time and baked into the app image) are implemented. The build script downloads JavaFX
+jmods on first use and produces a ~78 MB runtime / ~105 MB total install. Cold start to
+`[hotkey] registered` is ~1.0 s p50 with CDS on the development machine.
 
 **Scope**
 
 1. **Trim the runtime with jlink.** Build a custom runtime containing only
    `java.base`, `java.desktop`, `java.logging`, `java.management`, `jdk.unsupported`,
-   JavaFX modules, and JNA. Expect 163 MB → 60–80 MB.
+   JavaFX modules, and JNA. Expect 163 MB → 60–80 MB. *(Implemented; the runtime is
+   78 MB.)*
 2. **AppCDS / class-data sharing.** Generate a CDS archive at build time for JavaFX + the
-   app classes; expect 20–40% off startup.
+   app classes; CDS provides a small cold-start improvement (~1.0 s vs 1.07 s without it).
+   *(Implemented.)*
 3. **Lazy-load the tray.** AWT init is the slowest step; keep the hotkey and overlay ahead
    of it (already done) and defer tray/icon work until after the first idle.
 4. **Defer non-critical providers.** Web search and calculator stay cheap; anything new that
@@ -677,12 +685,12 @@ These run alongside the phases, not as separate phases.
 
 ## 8. Immediate next five (this week)
 
-1. **jlink + AppCDS build** (Phase 1.1–1.2). Cuts the install roughly in half and shortens
-   cold start, with no behavior change.
-2. **Ranking eval harness** (Phase 2.1). Turns "feels better" into a number and protects the
+1. **Ranking eval harness** (Phase 2.1). Turns "feels better" into a number and protects the
    next ranking change.
-3. **UWP/Store apps and the actions menu** (Phase 4.2, 4.4). The remaining launcher depth that
-   people notice immediately.
+2. **UWP/Store apps and remaining action-sheet depth** (Phase 4.2, 4.4). The remaining launcher
+   coverage that people notice immediately — pin to top, run with arguments, uninstall.
+3. **On-disk icon cache** (Phase 4.1 remainder). Cache extracted icons to disk so the first
+   cold reindex after startup isn't iconless.
 4. **Settings UI with live hotkey capture** (Phase 5), so the configured key and the fallback
    chain can be changed without editing JSON.
 5. **Signed MSI + auto-update + CI** (Phase 10), required before handing the app to anyone
