@@ -19,7 +19,8 @@ embedded browser engine or a separate backend service.
 ## Why Lumen?
 
 - **Instant access** — summon the overlay from anywhere with a global keyboard shortcut.
-- **Unified search** — applications, files and folders in one ranked list.
+- **Unified search** — applications, files, folders and open windows in one ranked list.
+- **Actions without a mouse** — `Ctrl+K` opens a keyboard-first sheet for any result.
 - **Built-in tools** — calculate expressions and convert units without opening anything else.
 - **Intelligent ranking** — frequently and recently used results float to the top.
 - **Local-first** — the index and usage history never leave your computer.
@@ -68,8 +69,13 @@ it; the overlay also opens once on a fresh install so you know it works.
 | `Alt+Space` | Show / hide the overlay |
 | `Enter` | Open the selected result |
 | `Ctrl+Enter` | Show the selected item in Explorer |
+| `Ctrl+K` or `→` | Open the action sheet for the selected result |
 | `↑` `↓` / `Tab` | Move the selection |
 | `Esc` | Clear the query, then close |
+
+The action sheet carries everything else: open as administrator, show in folder, copy the
+path or name, switch to a running window, or copy a calculation. Inside it, `↑` `↓` choose,
+`Enter` runs and `Esc` backs out without closing the launcher.
 
 The overlay hides as soon as Windows gives the foreground to another window — clicking away,
 `Alt+Tab`, or a UAC prompt all release it. It never sits on top of an application you are

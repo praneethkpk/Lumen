@@ -188,6 +188,69 @@
     -fx-font-size: 10.5px;
 }
 
+/* ---- actions sheet ---- */
+
+.action-menu {
+    -fx-background-color: rgba(31, 34, 41, 0.985);
+    -fx-background-radius: 12;
+    -fx-border-color: rgba(255, 255, 255, 0.11);
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 6 4 2 4;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.55), 24, 0.18, 0, 8);
+}
+
+.action-title {
+    -fx-text-fill: #7f8998;
+    -fx-font-size: 10.5px;
+}
+
+.action-list {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0;
+}
+
+.action-list .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: #e8ecf4;
+}
+
+.action-list .list-cell:filled:selected {
+    -fx-background-color: rgba(110, 168, 254, 0.20);
+    -fx-background-radius: 7;
+}
+
+.action-list .list-cell:filled:hover {
+    -fx-background-color: rgba(255, 255, 255, 0.06);
+    -fx-background-radius: 7;
+}
+
+.action-name {
+    -fx-text-fill: #e8ecf4;
+    -fx-font-size: 13px;
+}
+
+.action-hint {
+    -fx-text-fill: #66707f;
+    -fx-font-size: 10.5px;
+}
+
+.action-footer {
+    -fx-text-fill: #59616f;
+    -fx-font-size: 10px;
+}
+
+/* ---- inline error ---- */
+
+.error-banner {
+    -fx-text-fill: #ffb4b4;
+    -fx-font-size: 12px;
+    -fx-background-color: rgba(255, 92, 92, 0.10);
+    -fx-background-radius: 7;
+    -fx-padding: 5 9 5 9;
+}
+
 /* ---- scrollbar ---- */
 
 .result-list .scroll-bar:vertical {

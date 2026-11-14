@@ -181,6 +181,17 @@ window handle stored in `path`, the rest launch through the shell).
   immediately. `hideOnFocusLoss=false` keeps it open until `Esc` or the hotkey. Summon
   retries foreground activation at 0/60/150/300 ms and hides if activation never succeeds,
   rather than leaving an unfocused panel on top.
+- **Action sheet** — `Ctrl+K` (or `→` at the end of the query) opens a keyboard-driven action
+  list beside the results. It is rendered inside the overlay scene, not as a native popup: a
+  popup is its own window, so Windows would report it — not Lumen — as the foreground window
+  and the native-focus poll would hide the launcher underneath it. The sheet occupies a second
+  column of the results row, so one layout owns both and `resize()` sizes the stage to exactly
+  what is visible; `↑` `↓` move, `Enter` runs, `Esc` closes the sheet without closing the
+  launcher, and typing replaces it.
+- **Launch feedback** — a target is existence-checked before the overlay hides, so a file
+  deleted after indexing produces an inline "Not found" banner instead of a silent close. A
+  deferred `ShellExecute` failure (blocked by policy, association missing) reopens the overlay
+  with the reason. `runas` cancellation (error 1223) counts as success, because nothing failed.
 - **Tray** — AWT `SystemTray` with a live hotkey-status row, open, rebuild index, restart and
   quit, so the app is usable even if the hotkey could not be registered. The tooltip always
   names the active combination; the status text is stored without touching AWT until the icon

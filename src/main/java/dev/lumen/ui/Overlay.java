@@ -4,7 +4,6 @@ import dev.lumen.core.Hit;
 import dev.lumen.core.IndexItem;
 import dev.lumen.core.SearchEngine;
 import dev.lumen.core.UsageStore;
-import dev.lumen.platform.ShellLauncher;
 import dev.lumen.platform.WindowFocus;
 import javafx.animation.Animation;
 import javafx.animation.FadeTransition;
@@ -77,8 +76,15 @@ public final class Overlay {
     private final VBox shell = new VBox(6);
     private final TextField field = new TextField();
     private final ListView<Hit> list = new ListView<>();
+    /** Results plus, when open, the action sheet beside them. */
+    private final HBox body = new HBox(8);
     private final Label footerRight = new Label();
+    private final Label errorBanner = new Label();
+    private final PauseTransition errorTimer = new PauseTransition(Duration.seconds(4));
     private StackPane root;
+    private ActionMenu actionMenu;
+    private final ResultLauncher launcher;
+    private final ResultActions resultActions;
     private final Timeline foregroundPoll =
             new Timeline(new KeyFrame(Duration.millis(200), e -> checkForeground()));
     private final boolean hideOnFocusLoss;
@@ -91,6 +97,9 @@ public final class Overlay {
         this.usage = usage;
         this.indexSize = indexSize;
         this.hideOnFocusLoss = hideOnFocusLoss;
+        this.launcher = new ResultLauncher(this::hide, this::show, this::showError,
+                Overlay::copyToClipboard);
+        this.resultActions = new ResultActions(launcher, usage::record);
     }
 
     public void install() {
@@ -105,6 +114,19 @@ public final class Overlay {
         scene.getStylesheets().add(getClass().getResource("/styles.css").toExternalForm());
 
         scene.addEventFilter(KeyEvent.KEY_PRESSED, event -> {
+            // The action sheet owns the keyboard while it is open: Esc backs out of the
+            // sheet, not out of the launcher.
+            if (actionMenu != null) {
+                if (actionMenu.handleKey(event)) {
+                    event.consume();
+                    return;
+                }
+                if (event.getCode() == KeyCode.LEFT) {
+                    closeActions();
+                    event.consume();
+                    return;
+                }
+            }
             if (event.getCode() == KeyCode.ESCAPE) {
                 if (field.getText().isEmpty()) {
                     hide();
@@ -166,7 +188,12 @@ public final class Overlay {
         field.getStyleClass().add("search-field");
         field.setPromptText("Search apps and files…");
         HBox.setHgrow(field, Priority.ALWAYS);
-        field.textProperty().addListener((obs, old, value) -> refresh(true));
+        field.textProperty().addListener((obs, old, value) -> {
+            // A different query invalidates the actions for the previous row.
+            closeActions();
+            clearError();
+            refresh(true);
+        });
 
         Label keycap = new Label("ESC");
         keycap.getStyleClass().add("kbd");
@@ -196,7 +223,24 @@ public final class Overlay {
 
         HBox footer = buildFooter();
 
-        shell.getChildren().addAll(searchRow, divider, list, footer);
+        errorBanner.getStyleClass().add("error-banner");
+        errorBanner.setMaxWidth(Double.MAX_VALUE);
+        errorBanner.setWrapText(true);
+        errorBanner.setManaged(false);
+        errorBanner.setVisible(false);
+        errorTimer.setOnFinished(e -> clearError());
+
+        // The action sheet shares this row with the results instead of floating over them:
+        // one layout owns both, so the stage can be sized to exactly what is on screen.
+        body.setAlignment(Pos.TOP_LEFT);
+        body.setFillHeight(false);
+        HBox.setHgrow(list, Priority.ALWAYS);
+        // The list must be able to give up width when the action sheet takes a column.
+        list.setMinWidth(0);
+        list.setMaxWidth(Double.MAX_VALUE);
+        body.getChildren().add(list);
+
+        shell.getChildren().addAll(searchRow, divider, errorBanner, body, footer);
 
         StackPane container = new StackPane(shell);
         container.setPadding(new Insets(26));
@@ -210,7 +254,7 @@ public final class Overlay {
     private HBox buildFooter() {
         HBox navigate = hint("↑↓", "navigate");
         HBox open = hint("↵", "open");
-        HBox reveal = hint("Ctrl+↵", "show in folder");
+        HBox actions = hint("Ctrl+K", "actions");
         HBox close = hint("Esc", "close");
 
         footerRight.getStyleClass().add("footer-count");
@@ -218,7 +262,7 @@ public final class Overlay {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        HBox footer = new HBox(12, navigate, open, reveal, close, spacer, footerRight);
+        HBox footer = new HBox(12, navigate, open, actions, close, spacer, footerRight);
         footer.setAlignment(Pos.CENTER_LEFT);
         footer.getStyleClass().add("footer");
         return footer;
@@ -254,6 +298,11 @@ public final class Overlay {
     }
 
     private void onKeyPressed(KeyEvent event) {
+        if (event.isControlDown() && event.getCode() == KeyCode.K) {
+            showActions();
+            event.consume();
+            return;
+        }
         switch (event.getCode()) {
             case DOWN -> {
                 move(1);
@@ -262,6 +311,13 @@ public final class Overlay {
             case UP -> {
                 move(-1);
                 event.consume();
+            }
+            case RIGHT -> {
+                // Only take the arrow at the end of the query; otherwise it is a caret move.
+                if (field.getCaretPosition() >= field.getText().length()) {
+                    showActions();
+                    event.consume();
+                }
             }
             case TAB -> {
                 if (event.isAltDown()) {
@@ -299,40 +355,98 @@ public final class Overlay {
         }
 
         IndexItem item = hit.item();
-        hide();
-
         switch (item.kind()) {
-            case CALC -> copyToClipboard(item.path());
-            case WEB -> ShellLauncher.open(item.path());
-            case WINDOW -> switchToWindow(item.path());
+            case CALC -> {
+                hide();
+                copyToClipboard(item.path());
+            }
+            case WEB -> launcher.open(item.path());
+            case WINDOW -> {
+                hide();
+                launcher.switchTo(item.path());
+            }
             case APP, FILE, FOLDER -> {
                 if (reveal) {
-                    ShellLauncher.reveal(item.path());
+                    launcher.reveal(item.path());
                 } else {
                     usage.record(item.path());
-                    // Let the overlay disappear first so the launched window owns the foreground.
-                    PauseTransition delay = new PauseTransition(Duration.millis(60));
-                    delay.setOnFinished(e -> ShellLauncher.open(item.path()));
-                    delay.play();
+                    launcher.open(item.path());
                 }
             }
         }
     }
 
-    /**
-     * Switching is deferred for the same reason launching is: the overlay must be gone and
-     * must no longer hold the foreground before Windows will hand it to the target window.
-     */
-    private static void switchToWindow(String handle) {
-        long value;
-        try {
-            value = Long.parseLong(handle);
-        } catch (NumberFormatException e) {
+    // ---- actions -------------------------------------------------------
+
+    private void showActions() {
+        if (actionMenu != null) {
+            closeActions();
             return;
         }
-        PauseTransition delay = new PauseTransition(Duration.millis(60));
-        delay.setOnFinished(e -> WindowFocus.claimHandle(value));
-        delay.play();
+        Hit hit = list.getSelectionModel().getSelectedItem();
+        if (hit == null) {
+            return;
+        }
+
+        List<ActionMenu.Action> actions = resultActions.forItem(hit.item()).stream()
+                .map(this::dismissThen)
+                .toList();
+        if (actions.isEmpty()) {
+            return;
+        }
+
+        ActionMenu menu = new ActionMenu(hit.item().title(), actions, this::closeActions);
+        menu.setMaxHeight(Region.USE_PREF_SIZE);
+        actionMenu = menu;
+        body.getChildren().add(menu);
+        Platform.runLater(() -> {
+            if (stage.isShowing()) {
+                resize();
+            }
+        });
+        System.out.println("[actions] opened for " + hit.item().title());
+    }
+
+    private void closeActions() {
+        if (actionMenu == null) {
+            return;
+        }
+        body.getChildren().remove(actionMenu);
+        actionMenu = null;
+        Platform.runLater(() -> {
+            if (stage.isShowing()) {
+                resize();
+            }
+        });
+    }
+
+    /** Wraps an action so running it always dismisses the sheet first. */
+    private ActionMenu.Action dismissThen(ActionMenu.Action action) {
+        return new ActionMenu.Action(action.label(), action.hint(), () -> {
+            closeActions();
+            action.handler().run();
+        });
+    }
+
+    // ---- inline feedback -----------------------------------------------
+
+    private void showError(String message) {
+        System.err.println("[launch] " + message);
+        errorBanner.setText(message);
+        errorBanner.setManaged(true);
+        errorBanner.setVisible(true);
+        errorTimer.playFromStart();
+        resize();
+    }
+
+    private void clearError() {
+        errorTimer.stop();
+        if (!errorBanner.isVisible()) {
+            return;
+        }
+        errorBanner.setManaged(false);
+        errorBanner.setVisible(false);
+        resize();
     }
 
     private static void copyToClipboard(String text) {
@@ -375,6 +489,11 @@ public final class Overlay {
     }
 
     private void resize() {
+        // Every caller that needs a size runs while the window is on screen; sizing a hidden
+        // stage only fights the size it will be given on show().
+        if (!stage.isShowing()) {
+            return;
+        }
         int rows = Math.min(list.getItems().size(), MAX_VISIBLE_ROWS);
         double height = rows == 0 ? 56 : rows * ROW_HEIGHT + 4;
 
@@ -444,6 +563,10 @@ public final class Overlay {
             stage.hide();
             System.out.println("[hide]");
         }
+        // Clear the transient UI after the window is gone, so closing the sheet cannot
+        // trigger a visible re-layout on the way out.
+        closeActions();
+        clearError();
     }
 
     /**

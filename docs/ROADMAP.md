@@ -311,12 +311,16 @@ dependency, licensing) / high (elevated helper).
 
 **Why:** this is what makes it feel like a real launcher rather than a file finder.
 
-**Progress:** 4.1 and 4.3 are implemented. Icons are extracted with `SHGetFileInfo` and
-rendered through a GDI DIB section on a background thread, cached in memory per executable or
-file path; a failed extraction falls back to the kind badge. Running windows come from
-`EnumWindows` (visible, titled, non-tool, non-cloaked, not our own process) and Enter restores
-and focuses the window. 4.2 (UWP/Store apps) and 4.4–4.6 remain, as does the on-disk icon
-cache.
+**Progress:** 4.1, 4.3, 4.4 (first slice) and 4.6 are implemented. Icons are extracted with
+`SHGetFileInfo` and rendered through a GDI DIB section on a background thread, cached in memory
+per executable or file path; a failed extraction falls back to the kind badge. Running windows
+come from `EnumWindows` (visible, titled, non-tool, non-cloaked, not our own process) and Enter
+restores and focuses the window. `Ctrl+K` (or `→` at the end of the query) opens an in-scene
+action sheet — open, open as administrator, show in folder, copy path, copy name, switch to
+window, copy title, copy result — with `↑` `↓` / `Enter` / `Esc` navigation. A missing target
+now keeps the overlay open with an inline "Not found" banner instead of closing silently.
+Remaining: 4.2 (UWP/Store apps), pin to top, run with arguments and uninstall in the action
+sheet, and the on-disk icon cache.
 
 **Scope**
 
@@ -335,11 +339,14 @@ cache.
    *(Implemented.)*
 4. **Actions menu (`Ctrl+K` or `→`).** Open, open as administrator (`runas`), open
    containing folder, copy path, copy name, pin to top, run with arguments, uninstall
-   (where a shortcut provides it).
+   (where a shortcut provides it). *(Implemented: open, run as administrator, show in folder,
+   copy path, copy name, switch to window, copy title, copy result. Pin to top, run with
+   arguments and uninstall remain.)*
 5. **Aliases and manual entries.** `aliases.json` mapping `code` → path, `chrome` → exe,
    plus user-defined commands with arguments and working directory.
 6. **Launch feedback.** If a launch fails (missing file, blocked by policy), show an inline
-   error row instead of closing silently.
+   error row instead of closing silently. *(Implemented: a missing target is caught before
+   the overlay hides, and a deferred shell failure reopens the overlay with the reason.)*
 
 **Acceptance criteria**
 

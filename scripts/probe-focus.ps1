@@ -82,6 +82,9 @@ switch ($Action) {
         'SHIFT' { $mods += [byte]0x10 }
         'WIN' { $mods += [byte]0x5B }
         'SPACE' { $key = [byte]0x20 }
+        default {
+          if ($part.Trim().Length -eq 1) { $key = [byte][char]::ToUpper($part.Trim()) }
+        }
       }
     }
     "before: " + [WinFocusProbe]::Fg()
