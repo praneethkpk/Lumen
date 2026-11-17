@@ -189,4 +189,41 @@ public final class SearchText {
     public static String lower(String text) {
         return text == null ? "" : text.toLowerCase(Locale.ROOT);
     }
+
+    /**
+     * A 64-bit bitmap of the character 3-grams in {@code text}, where each 3-gram is a
+     * 15-bit id packed into a single {@code long}. Letters and digits are folded to lowercase;
+     * separators and punctuation are dropped. Used by {@link TrigramIndex} to skip entries
+     * that cannot possibly contain a query before any scoring work is done.
+     *
+     * <p>64 bits holds up to 4 distinct 3-grams per slot, which is enough to catch the vast
+     * majority of false positives. A collision between two different 3-grams is a false
+     * negative for one entry at most, and the exact scorer still runs on survivors, so the
+     * result is never wrong — only occasionally a little slower than ideal.
+     */
+    public static long trigramMask(String text) {
+        if (text == null || text.length() < 3) {
+            return 0L;
+        }
+        long mask = 0L;
+        char a = 0, b = 0;
+        boolean have = false;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (!Character.isLetterOrDigit(c)) {
+                a = b = 0;
+                have = false;
+                continue;
+            }
+            c = Character.toLowerCase(c);
+            if (have) {
+                int id = ((a - 'a') << 10) | ((b - 'a') << 5) | (c - 'a');
+                mask |= 1L << (id & 63);
+            }
+            a = b;
+            b = c;
+            have = true;
+        }
+        return mask;
+    }
 }

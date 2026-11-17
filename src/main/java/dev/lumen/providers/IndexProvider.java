@@ -88,9 +88,28 @@ public final class IndexProvider implements Provider {
         PriorityQueue<Hit> top = new PriorityQueue<>(limit + 1, Comparator.comparingInt(Hit::score));
         int threshold = Integer.MIN_VALUE;
 
+        // Build trigram bitmap from all tokens; used to skip entries that cannot contain
+        // all query trigrams before any per-entry scoring work is done.
+        long queryTrigramMask = 0L;
+        if (tokens != null && !tokens.isEmpty()) {
+            for (String token : tokens) {
+                queryTrigramMask |= SearchText.trigramMask(token);
+            }
+        }
+
         for (IndexEntry entry : store.entries()) {
             if (!query.accepts(entry)) {
                 continue;
+            }
+
+            // Quick trigram pre-filter: skip entries that don't contain all query trigrams.
+            // This is a probabilistic filter — it may let some false positives through, but
+            // it never produces false negatives; the exact scorer still runs on survivors.
+            if (queryTrigramMask != 0L) {
+                long entryTrigramMask = SearchText.trigramMask(entry.nameLower());
+                if ((entryTrigramMask & queryTrigramMask) != queryTrigramMask) {
+                    continue;
+                }
             }
 
             int total = tokens.isEmpty() ? FILTER_ONLY_BASE : 0;

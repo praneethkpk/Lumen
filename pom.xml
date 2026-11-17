@@ -16,6 +16,7 @@
     <javafx.version>21.0.5</javafx.version>
     <jna.version>5.14.0</jna.version>
     <jackson.version>2.17.2</jackson.version>
+    <wix.version>3.11</wix.version>
   </properties>
 
   <dependencies>
@@ -49,6 +50,56 @@
       <scope>test</scope>
     </dependency>
   </dependencies>
+
+  <profiles>
+    <!-- WiX MSI installer profile. Enabled on Windows when the WiX Toolset is installed. -->
+    <profile>
+      <id>wix</id>
+      <activation>
+        <os>
+          <family>windows</family>
+        </os>
+      </activation>
+
+      <properties>
+        <wix.version>4.0.2</wix.version>
+      </properties>
+
+      <build>
+        <plugins>
+          <!-- WiX Maven plugin: compiles .wxs into an MSI installer. -->
+          <plugin>
+            <groupId>com.github.wix-maven</groupId>
+            <artifactId>wix-maven-plugin</artifactId>
+            <version>0.3.0</version>
+            <executions>
+              <execution>
+                <id>wix-compile</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>build</goal>
+                </goals>
+                <configuration>
+                  <sourceDir>${project.basedir}/wix</sourceDir>
+                  <wxsFiles>
+                    <param>Product.wxs</param>
+                    <param>AppFiles.wxs</param>
+                  </wxsFiles>
+                  <outputDir>${project.build.directory}/wix</outputDir>
+                  <outputName>lumen</outputName>
+                  <version>${project.version}</version>
+                  <manufacturer>Praneeth Kumar</manufacturer>
+                  <productName>Lumen</productName>
+                  <description>A fast, native launcher and file search overlay for Windows.</description>
+                  <keywords>launcher,search,files,applications</keywords>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 
   <build>
     <plugins>

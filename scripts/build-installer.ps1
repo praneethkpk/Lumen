@@ -1,10 +1,12 @@
 param(
     [switch]$Console,
-    [switch]$FullRuntime
+    [switch]$FullRuntime,
+    [switch]$Msi
 )
 
 $ErrorActionPreference = 'Stop'
-Set-Location (Split-Path $PSScriptRoot -Parent)
+$root = Split-Path $PSScriptRoot -Parent
+Set-Location $root
 
 mvn -q -DskipTests clean package
 if ($LASTEXITCODE -ne 0) { throw "maven package failed" }
@@ -131,3 +133,41 @@ Write-Host "Built: dist\Lumen\Lumen.exe"
 Write-Host ("Runtime: {0:N0} MB bundled, {1:N0} MB installed" -f $runtimeMb, $totalMb)
 Write-Host "Runs without a console; diagnostics go to %LOCALAPPDATA%\Lumen\lumen.log"
 Write-Host "Use -Console to attach a console window for development."
+
+# ---- MSI installer (optional) ----
+if ($Msi) {
+    $candle = Get-Command 'candle.exe' -ErrorAction SilentlyContinue
+    $light = Get-Command 'light.exe' -ErrorAction SilentlyContinue
+    if (-not $candle -or -not $light) {
+        Write-Host "WiX Toolset not found; skipping MSI. Install from https://wixtoolset.org/"
+        return
+    }
+    Write-Host ""
+    Write-Host "Building MSI installer..."
+
+    # The WiX v4 templates harvest the full jpackage app image.
+    $wixDir = Join-Path $root 'wix'
+    $outDir = Join-Path $root 'target\wix'
+    if (Test-Path $outDir) { Remove-Item $outDir -Recurse -Force }
+    New-Item -ItemType Directory -Force $outDir | Out-Null
+
+    # Candle: compile .wxs into .wixobj
+    & $candle.Source `
+        -dAppImageDir=(Join-Path $root 'dist\Lumen') `
+        -dProductVersion='0.1.0' `
+        -out $outDir `
+        (Join-Path $wixDir 'Product.wxs') `
+        (Join-Path $wixDir 'AppFiles.wxs')
+    if ($LASTEXITCODE -ne 0) { throw "WiX candle failed" }
+
+    # Light: link .wixobj into .msi
+    & $light.Source `
+        -out (Join-Path $outDir 'Lumen.msi') `
+        (Join-Path $outDir 'Product.wixobj') `
+        (Join-Path $outDir 'AppFiles.wixobj')
+    if ($LASTEXITCODE -ne 0) { throw "WiX light failed" }
+
+    Write-Host "Built: target\wix\Lumen.msi"
+    Write-Host "Install: target\wix\Lumen.msi"
+    Write-Host "Uninstall: Right-click Start Menu > Lumen > Uninstall"
+}

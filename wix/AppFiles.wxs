@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+
+  <!--
+    Harvest the complete jpackage app-image directory.
+    Expected input: dist\Lumen\
+      Lumen.exe
+      app\
+      runtime\
+    Do not harvest the parent dist directory.
+  -->
+
+  <Fragment>
+    <ComponentGroup Id="AppImageFiles" Directory="INSTALLFOLDER">
+      <Files Include="$(var.AppImageDir)\**" />
+    </ComponentGroup>
+  </Fragment>
+
+</Wix>
