@@ -43,14 +43,16 @@ public final class Config {
     public boolean showOnStartup = false;
 
     /**
-     * When true (the default) the overlay closes when you click into another window.
+     * When false (the recommended default) the overlay stays open until Esc is pressed,
+     * even when you click into another window. Clicking away merely hides the overlay
+     * temporarily; it re-raises when the hotkey is pressed again.
      *
      * <p>A short settling period keeps the opposite failure away: Windows can pull activation
      * away for a moment while a global hotkey is released, and that must not be treated as a
      * real click-away. Only a focus loss after the overlay has been focused for a moment
-     * closes it.
+     * closes it when {@code hideOnFocusLoss} is true.
      */
-    public boolean hideOnFocusLoss = true;
+    public boolean hideOnFocusLoss = false;
 
     /** %s is replaced with the URL-encoded query. */
     public String webSearchUrl = "https://www.google.com/search?q=%s";

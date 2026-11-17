@@ -162,9 +162,14 @@ public record SearchQuery(
             }
         }
         for (String hint : pathHints) {
-            if (!entry.pathLower().contains(hint)) {
-                return false;
+            // The hint must match a full path segment to hint matching folder101.
+            String p = entry.pathLower();
+            if (hint.isEmpty()) continue;
+            if (p.equals(hint) || p.startsWith(hint + "\\") || p.endsWith("\\" + hint)
+                    || p.contains("\\" + hint + "\\")) {
+                continue;
             }
+            return false;
         }
         for (String excluded : exclusions) {
             if (entry.nameLower().contains(excluded) || entry.pathLower().contains(excluded)) {

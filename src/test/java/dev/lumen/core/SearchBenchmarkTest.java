@@ -20,7 +20,6 @@ import java.util.Locale;
  */
 class SearchBenchmarkTest {
 
-    private static final int ITEMS = 120_000;
     private static final int ITERATIONS = 120;
 
     @TempDir
@@ -30,29 +29,13 @@ class SearchBenchmarkTest {
     void reportsKeystrokeLatency() {
         Assumptions.assumeTrue(Boolean.getBoolean("bench"), "run with -Dbench=true");
 
-        List<IndexItem> items = new ArrayList<>(ITEMS);
-        String[] apps = {
-                "Visual Studio Code", "Google Chrome", "Firefox", "Notepad", "Calculator",
-                "Terminal", "PowerShell", "Spotify", "Slack", "Discord", "Steam",
-                "Task Manager", "Settings", "Paint", "Snipping Tool"
-        };
-        for (int i = 0; i < ITEMS; i++) {
-            if (i < 240) {
-                String name = apps[i % apps.length] + " " + (i / apps.length);
-                items.add(IndexItem.app(name, "C:\\Apps\\app" + i + ".exe"));
-            } else {
-                String folder = "folder" + (i % 200);
-                String name = "report " + i + (i % 3 == 0 ? ".pdf" : ".txt");
-                items.add(IndexItem.file(name,
-                        "C:\\Users\\me\\Documents\\" + folder + "\\" + name, folder));
-            }
-        }
-
+        List<IndexItem> items = SyntheticCorpus.build();
         IndexStore store = new IndexStore(temp.resolve("index.json"));
         store.replace(items);
         UsageStore usage = new UsageStore(temp.resolve("usage.json"));
         Config config = new Config();
-        SearchEngine engine = new SearchEngine(List.of(new IndexProvider(store, usage, config)), config);
+        SearchEngine engine = new SearchEngine(
+                List.of(new IndexProvider(store, usage, config)), config);
 
         for (String query : List.of("c", "chr", "chrome", "report", "quarterly report",
                 "vsc", "ext:pdf", "in:documents report", "apps chrome")) {
